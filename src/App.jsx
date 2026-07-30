@@ -5,6 +5,7 @@ import { io } from "socket.io-client";
 import "leaflet/dist/leaflet.css";
 import { api, socketOrigin } from "./api.js";
 import payNearEmblem from "./assets/paynear-emblem.svg";
+import instaPayLogo from "./assets/instapay-logo.svg";
 
 const METHODS = ["GCash", "Maya", "QR Ph", "InstaPay", "BPI", "BDO", "UnionBank", "Card", "Cash", "Bank Transfer"];
 const CATEGORIES = ["All", "Cafe", "Restaurant", "Grocery", "Pharmacy", "Convenience Store"];
@@ -19,8 +20,8 @@ const initialListing = { name: "", category: "Cafe", address: "", ownerName: "",
 const PAYMENT_BRANDS = {
   GCash: { mark: "G", className: "gcash", logoSrc: "https://commons.wikimedia.org/wiki/Special:FilePath/GCash_logo.svg" },
   Maya: { mark: "M", className: "maya", logoSrc: "https://commons.wikimedia.org/wiki/Special:FilePath/Maya_logo.svg" },
-  "QR Ph": { mark: "QR", className: "qrph" },
-  InstaPay: { mark: "IP", className: "instapay" },
+  "QR Ph": { mark: "QR", className: "qrph", logoSrc: "https://commons.wikimedia.org/wiki/Special:FilePath/QR_Ph_Logo.svg" },
+  InstaPay: { mark: "IP", className: "instapay", logoSrc: instaPayLogo },
   BPI: { mark: "BPI", className: "bpi", logoSrc: "https://commons.wikimedia.org/wiki/Special:FilePath/Official_BPI_Logo.svg" },
   BDO: { mark: "BDO", className: "bdo", logoSrc: "https://commons.wikimedia.org/wiki/Special:FilePath/BDO_Unibank_(logo).svg" },
   UnionBank: { mark: "UB", className: "unionbank", logoSrc: "https://commons.wikimedia.org/wiki/Special:FilePath/Unionbanklogo.png" },
@@ -32,7 +33,7 @@ const PAYMENT_BRANDS = {
 function PaymentLogo({ method, compact = false }) {
   const brand = PAYMENT_BRANDS[method] || PAYMENT_BRANDS.Card;
   return <span className={`payment-logo ${brand.className} ${brand.logoSrc ? "has-logo" : ""} ${compact ? "compact" : ""}`} title={method}>
-    {brand.logoSrc ? <img className="payment-brand-logo" src={brand.logoSrc} alt="" /> : <b>{brand.mark}</b>}
+    {brand.logoSrc ? <img className="payment-brand-logo" src={brand.logoSrc} alt={`${method} logo`} /> : <b>{brand.mark}</b>}
     {!compact && <span>{method}</span>}
   </span>;
 }

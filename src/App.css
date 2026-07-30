@@ -95,6 +95,10 @@
 
 .payment-logo.qrph b { min-width: 21px; background: #075ea8; font-size: 7px; }
 .payment-logo.instapay b { min-width: 21px; background: #6e3c9f; font-size: 7px; }
+.payment-logo.has-logo.qrph { border-color: #d2e0f1; }.payment-logo.has-logo.instapay { border-color: #d9dcec; }
+.payment-logo.has-logo.qrph .payment-brand-logo { width: 40px; height: 18px; }.payment-logo.has-logo.instapay .payment-brand-logo { width: 54px; height: 20px; }
+.payment-logo.compact.has-logo.qrph { min-width: 42px; }.payment-logo.compact.has-logo.instapay { min-width: 56px; }
+.payment-logo.compact.has-logo.qrph .payment-brand-logo { width: 38px; height: 18px; }.payment-logo.compact.has-logo.instapay .payment-brand-logo { width: 52px; height: 20px; }
 
 /* Results live in the same scrollable marketplace panel as the search controls. */
 .map-sidebar-results { margin-top: 14px; padding-top: 14px; border-top: 1px solid #e2eeee; }
