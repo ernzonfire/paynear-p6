@@ -107,6 +107,7 @@ function App() {
   const [listingForm, setListingForm] = useState(initialListing);
   const [adminMessage, setAdminMessage] = useState("");
   const socketRef = useRef(null);
+  const locationWatchRef = useRef(null);
 
   const alert = useCallback((message) => {
     setToast(message);
@@ -129,6 +130,10 @@ function App() {
   }, [filters]);
 
   useEffect(() => { loadResults(); }, [loadResults]);
+
+  useEffect(() => () => {
+    if (locationWatchRef.current !== null) navigator.geolocation?.clearWatch(locationWatchRef.current);
+  }, []);
 
   useEffect(() => {
     if (!token) return;
@@ -226,22 +231,25 @@ function App() {
 
   function requestNearbyLocation() {
     if (!navigator.geolocation) {
-      setLocationStatus("This browser does not support location. Showing Metro Manila instead.");
-      setMapView(true);
+      setLocationStatus("This browser does not support location. Showing the Metro Manila preview instead.");
       return;
     }
-    setLocationStatus("Requesting your location...");
-    navigator.geolocation.getCurrentPosition(
+    if (locationWatchRef.current !== null) navigator.geolocation.clearWatch(locationWatchRef.current);
+    setLocationStatus("Getting your live location...");
+    locationWatchRef.current = navigator.geolocation.watchPosition(
       ({ coords }) => {
         const location = { latitude: Number(coords.latitude.toFixed(6)), longitude: Number(coords.longitude.toFixed(6)) };
         setUserPosition(location);
         setFilters((current) => ({ ...current, ...location }));
-        setLocationStatus("Nearby results use your device location. It is never shared with stores.");
+        setLocationStatus("Live location is active. Your exact location is never shared with stores.");
       },
-      () => {
-        setLocationStatus("Location was not shared. Showing the Metro Manila marketplace view instead.");
+      (positionError) => {
+        locationWatchRef.current = null;
+        setLocationStatus(positionError.code === positionError.PERMISSION_DENIED
+          ? "Location permission was not allowed. Showing the Metro Manila preview instead."
+          : "We could not get your live location. Check your device location settings and try again.");
       },
-      { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 },
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 15000 },
     );
   }
 
@@ -378,7 +386,7 @@ function DiscoverPage({ filters, setFilters, aiPrompt, setAiPrompt, applyAiSugge
       <div className="map-filter-group"><span>What are you looking for?</span><div className="chip-row">{CATEGORIES.map((category) => <button key={category} className={filters.query === category ? "chip selected" : "chip"} onClick={() => setFilters((current) => ({ ...current, query: category === "All" ? "" : category }))}>{category}</button>)}</div></div>
       <div className="map-payment-section"><div className="map-payment-heading"><div><span>Payment preference <em>Optional</em></span><p>Choose one only when it matters to you.</p></div></div><div className="payment-preference-carousel">{PAYMENT_FILTER_OPTIONS.map((option) => <PaymentPreference key={option.method || "all"} option={option} selected={filters.method === option.method} onSelect={() => setFilters((current) => ({ ...current, method: option.method }))} />)}</div></div>
       <label className="range-label map-range"><span>Search radius <strong>{filters.radiusKm} km</strong></span><input type="range" min="1" max="10" value={filters.radiusKm} onChange={(event) => setFilters((current) => ({ ...current, radiusKm: Number(event.target.value) }))} /></label>
-      <button className="location-button map-location-button" onClick={requestNearbyLocation}>{userPosition ? "Location active" : "Use my location"}</button>
+      <button className="location-button map-location-button" onClick={requestNearbyLocation}>{userPosition ? "Live location active" : "Use live location"}</button>
       <details className="map-advanced-filters"><summary>More filters</summary><label className="switch"><input type="checkbox" checked={filters.openNow} onChange={(event) => setFilters((current) => ({ ...current, openNow: event.target.checked }))} /><span>Open now only</span></label><label>Minimum rating<select value={filters.minRating} onChange={(event) => setFilters((current) => ({ ...current, minRating: Number(event.target.value) }))}><option value="0">Any rating</option><option value="4">4.0 and up</option><option value="4.5">4.5 and up</option></select></label></details>
       <form className="map-ai-box" onSubmit={applyAiSuggestion}><span className="ai-spark">AI</span><input value={aiPrompt} onChange={(event) => setAiPrompt(event.target.value)} placeholder="Ask: cafe with GCash, open now" /><button className="button primary" type="submit">Ask</button></form>
       {aiMessage && <div className="ai-result"><strong>{aiProvider}</strong><span>{aiMessage}</span></div>}
