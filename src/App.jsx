@@ -49,10 +49,10 @@ function MapViewport({ center }) {
   return null;
 }
 
-function NearbyMap({ establishments, selected, setSelected, userPosition, radiusKm, locationStatus, activeMethod }) {
+function NearbyMap({ establishments, selected, setSelected, userPosition, radiusKm, locationStatus, activeMethod, fullScreen = false }) {
   const fallbackCenter = [10.3157, 123.8854];
   const center = userPosition ? [userPosition.latitude, userPosition.longitude] : fallbackCenter;
-  return <div className="map-shell">
+  return <div className={`map-shell ${fullScreen ? "map-shell-fullscreen" : ""}`}>
     <MapContainer center={center} zoom={userPosition ? 14 : 13} scrollWheelZoom className="nearby-map">
       <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>' url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" />
       <MapViewport center={center} />
@@ -77,7 +77,7 @@ function App() {
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiMessage, setAiMessage] = useState("");
   const [aiProvider, setAiProvider] = useState("");
-  const [mapView, setMapView] = useState(false);
+  const [mapView, setMapView] = useState(true);
   const [userPosition, setUserPosition] = useState(null);
   const [locationStatus, setLocationStatus] = useState("");
   const [token, setToken] = useState(() => localStorage.getItem("paynear-token") || "");
@@ -371,40 +371,35 @@ function App() {
 
 function DiscoverPage({ filters, setFilters, aiPrompt, setAiPrompt, applyAiSuggestion, aiMessage, aiProvider, establishments, selected, setSelected, loading, error, favoriteIds, toggleFavorite, openChat, sendGcashNotice, mapView, setMapView, userPosition, requestNearbyLocation, locationStatus }) {
   const clearFilters = () => setFilters(initialFilters);
-  return <>
-    <section className="hero">
-      <div className="hero-copy"><span className="eyebrow">PAY WHERE YOU FEEL READY</span><h1>Find places that fit how you pay.</h1><p>Discover verified nearby stores, check accepted payment methods, and ask before you go.</p></div>
-      <div className="hero-stat"><strong>GCash</strong><span>available where listings say it is</span><small>PayNear never processes payments.</small></div>
-    </section>
-    <section className="workspace">
-      <aside className="filter-panel">
-        <div className="panel-heading"><div><span className="eyebrow">SEARCH</span><h2>Find nearby</h2></div><button className="text-button" onClick={clearFilters}>Reset</button></div>
-        <label>Place or category<input value={filters.query} onChange={(event) => setFilters((current) => ({ ...current, query: event.target.value }))} placeholder="e.g. cafe or pharmacy" /></label>
-        <div className="choice-group"><span>Category</span><div className="chip-row">{CATEGORIES.map((category) => <button key={category} className={filters.query === category ? "chip selected" : "chip"} onClick={() => setFilters((current) => ({ ...current, query: category === "All" ? "" : category }))}>{category}</button>)}</div></div>
-        <div className="choice-group"><span>Payment method</span><div className="payment-select">{METHODS.map((method) => <button key={method} className={filters.method === method ? "payment-choice selected" : "payment-choice"} onClick={() => setFilters((current) => ({ ...current, method }))}><PaymentLogo method={method} compact /><span>{method}</span></button>)}</div></div>
-        <label className="range-label"><span>Distance <strong>{filters.radiusKm} km</strong></span><input type="range" min="1" max="10" value={filters.radiusKm} onChange={(event) => setFilters((current) => ({ ...current, radiusKm: Number(event.target.value) }))} /></label>
-        <label className="switch"><input type="checkbox" checked={filters.openNow} onChange={(event) => setFilters((current) => ({ ...current, openNow: event.target.checked }))} /><span>Open now only</span></label>
-        <label>Minimum rating<select value={filters.minRating} onChange={(event) => setFilters((current) => ({ ...current, minRating: Number(event.target.value) }))}><option value="0">Any rating</option><option value="4">4.0 and up</option><option value="4.5">4.5 and up</option></select></label>
-      </aside>
-      <div className="content-panel">
-        <form className="ai-box" onSubmit={applyAiSuggestion}><div><span className="ai-spark">AI</span><strong>Ask PayNear Assistant</strong><p>Try: “coffee shop with GCash near me, open now”</p></div><input value={aiPrompt} onChange={(event) => setAiPrompt(event.target.value)} placeholder="Describe what you need" /><button className="button primary" type="submit">Suggest filters</button></form>
-        {aiMessage && <div className="ai-result"><strong>{aiProvider}</strong><span>{aiMessage}</span></div>}
-        <div className="results-heading"><div><span className="eyebrow">NEARBY RESULTS</span><h2>{loading ? "Looking around..." : `${establishments.length} places found`}</h2></div><div className="result-actions"><button className="location-button" onClick={requestNearbyLocation}>{userPosition ? "Location active" : "Use my location"}</button><div className="view-switch"><button className={!mapView ? "active" : ""} onClick={() => setMapView(false)}>List</button><button className={mapView ? "active" : ""} onClick={() => setMapView(true)}>Map</button></div></div></div>
-        {error && <div className="error-box">{error}</div>}
-        {mapView ? <NearbyMap establishments={establishments} selected={selected} setSelected={setSelected} userPosition={userPosition} radiusKm={filters.radiusKm} locationStatus={locationStatus} activeMethod={filters.method} /> : <div className="place-grid">{!loading && establishments.map((place) => <PlaceCard key={place._id} place={place} selected={selected?._id === place._id} onClick={() => setSelected(place)} favorite={favoriteIds.includes(place._id)} toggleFavorite={toggleFavorite} />)}</div>}
-      </div>
-      <DetailsPanel selected={selected} favorite={favoriteIds.includes(selected?._id)} toggleFavorite={toggleFavorite} openChat={openChat} sendGcashNotice={sendGcashNotice} />
-    </section>
-  </>;
+  return <section className={`discover-map-page ${mapView ? "map-mode" : "list-mode"}`}>
+    <NearbyMap establishments={establishments} selected={selected} setSelected={setSelected} userPosition={userPosition} radiusKm={filters.radiusKm} locationStatus={locationStatus} activeMethod={filters.method} fullScreen />
+
+    <aside className="map-control-panel" aria-label="Find nearby places">
+      <div className="map-panel-heading"><div><span className="eyebrow">PAYNEAR MARKETPLACE</span><h1>Find nearby</h1></div><button className="text-button" onClick={clearFilters}>Reset</button></div>
+      <label className="map-input-label">Search a place or category<input value={filters.query} onChange={(event) => setFilters((current) => ({ ...current, query: event.target.value }))} placeholder="e.g. cafe or pharmacy" /></label>
+      <div className="map-filter-group"><span>Category</span><div className="chip-row">{CATEGORIES.map((category) => <button key={category} className={filters.query === category ? "chip selected" : "chip"} onClick={() => setFilters((current) => ({ ...current, query: category === "All" ? "" : category }))}>{category}</button>)}</div></div>
+      <div className="map-filter-group"><span>Payment method</span><div className="payment-select">{METHODS.map((method) => <button key={method} className={filters.method === method ? "payment-choice selected" : "payment-choice"} onClick={() => setFilters((current) => ({ ...current, method }))}><PaymentLogo method={method} compact /><span>{method}</span></button>)}</div></div>
+      <label className="range-label map-range"><span>Search radius <strong>{filters.radiusKm} km</strong></span><input type="range" min="1" max="10" value={filters.radiusKm} onChange={(event) => setFilters((current) => ({ ...current, radiusKm: Number(event.target.value) }))} /></label>
+      <button className="location-button map-location-button" onClick={requestNearbyLocation}>{userPosition ? "Location active" : "Use my location"}</button>
+      <details className="map-advanced-filters"><summary>More filters</summary><label className="switch"><input type="checkbox" checked={filters.openNow} onChange={(event) => setFilters((current) => ({ ...current, openNow: event.target.checked }))} /><span>Open now only</span></label><label>Minimum rating<select value={filters.minRating} onChange={(event) => setFilters((current) => ({ ...current, minRating: Number(event.target.value) }))}><option value="0">Any rating</option><option value="4">4.0 and up</option><option value="4.5">4.5 and up</option></select></label></details>
+      <form className="map-ai-box" onSubmit={applyAiSuggestion}><span className="ai-spark">AI</span><input value={aiPrompt} onChange={(event) => setAiPrompt(event.target.value)} placeholder="Ask: cafe with GCash, open now" /><button className="button primary" type="submit">Ask</button></form>
+      {aiMessage && <div className="ai-result"><strong>{aiProvider}</strong><span>{aiMessage}</span></div>}
+      {error && <div className="error-box">{error}</div>}
+      <div className="map-panel-footer"><span>{loading ? "Looking around..." : `${establishments.length} places nearby`}</span><div className="view-switch"><button className={!mapView ? "active" : ""} onClick={() => setMapView(false)}>List</button><button className={mapView ? "active" : ""} onClick={() => setMapView(true)}>Map</button></div></div>
+    </aside>
+
+    {!mapView && <aside className="map-results-drawer"><div className="map-drawer-heading"><div><span className="eyebrow">RESULTS</span><h2>{loading ? "Looking around..." : `${establishments.length} places found`}</h2></div><button className="text-button" onClick={() => setMapView(true)}>Close</button></div><div className="map-results-list">{!loading && establishments.map((place) => <PlaceCard key={place._id} place={place} selected={selected?._id === place._id} onClick={() => { setSelected(place); setMapView(true); }} favorite={favoriteIds.includes(place._id)} toggleFavorite={toggleFavorite} />)}</div></aside>}
+    {selected && <DetailsPanel variant="map-details-panel" selected={selected} favorite={favoriteIds.includes(selected._id)} toggleFavorite={toggleFavorite} openChat={openChat} sendGcashNotice={sendGcashNotice} />}
+  </section>;
 }
 
 function PlaceCard({ place, selected, onClick, favorite, toggleFavorite }) {
   return <article className={`place-card ${selected ? "selected" : ""}`}><button className="card-main" onClick={onClick}><img src={place.imageUrl} alt={`${place.name} storefront`} /><div className="card-copy"><div className="card-topline"><span>{place.category}</span><span>{place.distanceKm} km</span></div><h3>{place.name}</h3><p>{place.address}</p><div className="card-footer"><span className="rating">Star {place.rating}</span>{place.openNow ? <span className="open">Open now</span> : <span className="closed">Closed</span>}<span className="card-payment-logos">{place.acceptedPaymentMethods.slice(0, 3).map((method) => <PaymentLogo key={method} method={method} compact />)}</span></div></div></button><button className={`favorite-button ${favorite ? "saved" : ""}`} aria-label="Save place" onClick={() => toggleFavorite(place._id)}>{favorite ? "Saved" : "Save"}</button></article>;
 }
 
-function DetailsPanel({ selected, favorite, toggleFavorite, openChat, sendGcashNotice }) {
-  if (!selected) return <aside className="details-panel empty"><p>Select a nearby place to view payment information.</p></aside>;
-  return <aside className="details-panel"><img className="details-image" src={selected.imageUrl} alt={`${selected.name} storefront`} /><div className="details-body"><div className="panel-heading"><span className="verify-badge">{selected.verificationStatus === "verified" ? "Verified listing" : "Pending verification"}</span><button className="text-button" onClick={() => toggleFavorite(selected._id)}>{favorite ? "Saved" : "Save"}</button></div><h2>{selected.name}</h2><p>{selected.address}</p><div className="detail-stats"><span>Star {selected.rating} ({selected.reviewCount || 0})</span><span>{selected.distanceKm} km away</span></div><div className="payment-list"><span>Accepted methods</span><div>{selected.acceptedPaymentMethods.map((method) => <PaymentLogo key={method} method={method} />)}</div></div><div className="details-actions"><button className="button primary" onClick={openChat}>Message place</button><button className="button outline" onClick={sendGcashNotice}>GCash update</button></div><p className="quiet-note">A GCash update is a demo directory notification, never a payment receipt.</p></div></aside>;
+function DetailsPanel({ selected, favorite, toggleFavorite, openChat, sendGcashNotice, variant = "" }) {
+  if (!selected) return <aside className={`details-panel empty ${variant}`}><p>Select a nearby place to view payment information.</p></aside>;
+  return <aside className={`details-panel ${variant}`}><img className="details-image" src={selected.imageUrl} alt={`${selected.name} storefront`} /><div className="details-body"><div className="panel-heading"><span className="verify-badge">{selected.verificationStatus === "verified" ? "Verified listing" : "Pending verification"}</span><button className="text-button" onClick={() => toggleFavorite(selected._id)}>{favorite ? "Saved" : "Save"}</button></div><h2>{selected.name}</h2><p>{selected.address}</p><div className="detail-stats"><span>Star {selected.rating} ({selected.reviewCount || 0})</span><span>{selected.distanceKm} km away</span></div><div className="payment-list"><span>Accepted methods</span><div>{selected.acceptedPaymentMethods.map((method) => <PaymentLogo key={method} method={method} />)}</div></div><div className="details-actions"><button className="button primary" onClick={openChat}>Message place</button><button className="button outline" onClick={sendGcashNotice}>GCash update</button></div><p className="quiet-note">A GCash update is a demo directory notification, never a payment receipt.</p></div></aside>;
 }
 
 function SavedPage({ user, savedPlaces, selected, setSelected, toggleFavorite, updatePreference, openDiscover }) {
