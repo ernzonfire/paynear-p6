@@ -54,17 +54,13 @@ function formatTime(value) {
   return new Intl.DateTimeFormat("en-PH", { hour: "numeric", minute: "2-digit" }).format(new Date(value));
 }
 
-function contactInitials(name) {
-  return String(name || "Listing contact").split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
-}
-
 function MapViewport({ center }) {
   const map = useMap();
   useEffect(() => { map.flyTo(center, map.getZoom(), { animate: true, duration: .55 }); }, [center, map]);
   return null;
 }
 
-function NearbyMap({ establishments, selected, setSelected, userPosition, radiusKm, locationStatus, activeMethod, fullScreen = false }) {
+function NearbyMap({ establishments, setSelected, userPosition, radiusKm, locationStatus, activeMethod, onOpenChat, fullScreen = false }) {
   const fallbackCenter = [14.64, 121.049];
   const center = userPosition ? [userPosition.latitude, userPosition.longitude] : fallbackCenter;
   return <div className={`map-shell ${fullScreen ? "map-shell-fullscreen" : ""}`}>
@@ -75,7 +71,7 @@ function NearbyMap({ establishments, selected, setSelected, userPosition, radius
       {establishments.filter((place) => place.location?.coordinates?.length === 2).map((place) => {
         const [longitude, latitude] = place.location.coordinates;
         const markerMethod = place.acceptedPaymentMethods.includes(activeMethod) ? activeMethod : place.acceptedPaymentMethods?.[0];
-        return <Marker key={place._id} position={[latitude, longitude]} icon={mapIcon(markerMethod)} eventHandlers={{ click: () => setSelected(place) }}><Popup><div className="map-popup"><strong>{place.name}</strong><span>{place.distanceKm} km - {place.category}</span><small>{place.ownerName || "Listing contact"}</small><div>{place.acceptedPaymentMethods.slice(0, 3).map((method) => <PaymentLogo key={method} method={method} compact />)}</div><button onClick={() => setSelected(place)}>{selected?._id === place._id ? "Selected" : "View details"}</button></div></Popup></Marker>;
+        return <Marker key={place._id} position={[latitude, longitude]} icon={mapIcon(markerMethod)} eventHandlers={{ click: () => setSelected(place) }}><Popup><div className="map-popup"><strong>{place.name}</strong><span>{place.distanceKm} km - {place.category}</span><small>{place.ownerName || "Listing contact"}</small><div>{place.acceptedPaymentMethods.slice(0, 3).map((method) => <PaymentLogo key={method} method={method} compact />)}</div><button onClick={() => { setSelected(place); onOpenChat(); }}>Message {(place.ownerName || place.name).split(" ")[0]}</button></div></Popup></Marker>;
       })}
     </MapContainer>
     <div className="map-overlay"><strong>{userPosition ? `${radiusKm} km radius around you` : "Metro Manila marketplace view"}</strong><span>{locationStatus || "Turn on location for an exact nearby radius."}</span></div>
@@ -92,7 +88,6 @@ function App() {
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiMessage, setAiMessage] = useState("");
   const [aiProvider, setAiProvider] = useState("");
-  const [mapView, setMapView] = useState(true);
   const [userPosition, setUserPosition] = useState(null);
   const [locationStatus, setLocationStatus] = useState("");
   const [token, setToken] = useState(() => localStorage.getItem("paynear-token") || "");
@@ -242,11 +237,9 @@ function App() {
         setUserPosition(location);
         setFilters((current) => ({ ...current, ...location }));
         setLocationStatus("Nearby results use your device location. It is never shared with stores.");
-        setMapView(true);
       },
       () => {
         setLocationStatus("Location was not shared. Showing the Metro Manila marketplace view instead.");
-        setMapView(true);
       },
       { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 },
     );
@@ -268,16 +261,6 @@ function App() {
       setUser(result.user);
       localStorage.setItem("paynear-user", JSON.stringify(result.user));
       alert("Payment preference updated.");
-    } catch (requestError) { alert(requestError.message); }
-  }
-
-  async function sendGcashNotice() {
-    if (!selected) return;
-    if (!token) { setAuthOpen(true); setAuthMode("login"); return; }
-    try {
-      const { notification } = await api.gcashNotice(selected._id, token);
-      setNotifications((current) => [notification, ...current]);
-      alert("GCash directory notification added.");
     } catch (requestError) { alert(requestError.message); }
   }
 
@@ -370,8 +353,8 @@ function App() {
         {activePage === "discover" && <DiscoverPage
           filters={filters} setFilters={setFilters} aiPrompt={aiPrompt} setAiPrompt={setAiPrompt} applyAiSuggestion={applyAiSuggestion}
           aiMessage={aiMessage} aiProvider={aiProvider} establishments={establishments} selected={selected} setSelected={setSelected}
-          loading={loading} error={error} favoriteIds={favoriteIds} toggleFavorite={toggleFavorite} openChat={openChat} sendGcashNotice={sendGcashNotice}
-          mapView={mapView} setMapView={setMapView} userPosition={userPosition} requestNearbyLocation={requestNearbyLocation} locationStatus={locationStatus}
+          loading={loading} error={error} favoriteIds={favoriteIds} toggleFavorite={toggleFavorite} openChat={openChat}
+          userPosition={userPosition} requestNearbyLocation={requestNearbyLocation} locationStatus={locationStatus}
         />}
         {activePage === "saved" && <SavedPage user={user} savedPlaces={savedPlaces} selected={selected} setSelected={setSelected} toggleFavorite={toggleFavorite} updatePreference={updatePreference} openDiscover={() => selectPage("discover")} />}
         {activePage === "chat" && <ChatPage user={user} selected={selected} messages={messages} draft={messageDraft} setDraft={setMessageDraft} sendMessage={sendMessage} demoStoreReply={demoStoreReply} status={chatStatus} requestSignIn={() => { setAuthMode("login"); setAuthOpen(true); }} />}
@@ -384,10 +367,10 @@ function App() {
   );
 }
 
-function DiscoverPage({ filters, setFilters, aiPrompt, setAiPrompt, applyAiSuggestion, aiMessage, aiProvider, establishments, selected, setSelected, loading, error, favoriteIds, toggleFavorite, openChat, sendGcashNotice, mapView, setMapView, userPosition, requestNearbyLocation, locationStatus }) {
+function DiscoverPage({ filters, setFilters, aiPrompt, setAiPrompt, applyAiSuggestion, aiMessage, aiProvider, establishments, selected, setSelected, loading, error, favoriteIds, toggleFavorite, openChat, userPosition, requestNearbyLocation, locationStatus }) {
   const clearFilters = () => setFilters(initialFilters);
-  return <section className={`discover-map-page ${mapView ? "map-mode" : "list-mode"}`}>
-    <NearbyMap establishments={establishments} selected={selected} setSelected={setSelected} userPosition={userPosition} radiusKm={filters.radiusKm} locationStatus={locationStatus} activeMethod={filters.method} fullScreen />
+  return <section className="discover-map-page map-mode">
+    <NearbyMap establishments={establishments} setSelected={setSelected} userPosition={userPosition} radiusKm={filters.radiusKm} locationStatus={locationStatus} activeMethod={filters.method} onOpenChat={openChat} fullScreen />
 
     <aside className="map-control-panel" aria-label="Find nearby places">
       <div className="map-panel-heading"><div><span className="eyebrow">PAYNEAR MARKETPLACE</span><h1>Find nearby</h1></div><button className="text-button" onClick={clearFilters}>Reset</button></div>
@@ -400,22 +383,14 @@ function DiscoverPage({ filters, setFilters, aiPrompt, setAiPrompt, applyAiSugge
       <form className="map-ai-box" onSubmit={applyAiSuggestion}><span className="ai-spark">AI</span><input value={aiPrompt} onChange={(event) => setAiPrompt(event.target.value)} placeholder="Ask: cafe with GCash, open now" /><button className="button primary" type="submit">Ask</button></form>
       {aiMessage && <div className="ai-result"><strong>{aiProvider}</strong><span>{aiMessage}</span></div>}
       {error && <div className="error-box">{error}</div>}
-      <div className="map-panel-footer"><span>{loading ? "Looking around..." : `${establishments.length} places nearby`}</span><div className="view-switch"><button className={!mapView ? "active" : ""} onClick={() => setMapView(false)}>List</button><button className={mapView ? "active" : ""} onClick={() => setMapView(true)}>Map</button></div></div>
+      <div className="map-panel-footer"><span>{loading ? "Looking around..." : `${establishments.length} places nearby`}</span></div>
+      <div className="map-sidebar-results"><div className="map-sidebar-results-heading"><span className="eyebrow">RESULTS</span><span>Select a place, then use Messages to contact its owner.</span></div><div className="map-sidebar-results-list">{!loading && establishments.map((place) => <PlaceCard key={place._id} place={place} selected={selected?._id === place._id} onClick={() => setSelected(place)} favorite={favoriteIds.includes(place._id)} toggleFavorite={toggleFavorite} />)}</div></div>
     </aside>
-
-    {!mapView && <aside className="map-results-drawer"><div className="map-drawer-heading"><div><span className="eyebrow">RESULTS</span><h2>{loading ? "Looking around..." : `${establishments.length} places found`}</h2></div><button className="text-button" onClick={() => setMapView(true)}>Close</button></div><div className="map-results-list">{!loading && establishments.map((place) => <PlaceCard key={place._id} place={place} selected={selected?._id === place._id} onClick={() => { setSelected(place); setMapView(true); }} favorite={favoriteIds.includes(place._id)} toggleFavorite={toggleFavorite} />)}</div></aside>}
-    {selected && <DetailsPanel variant="map-details-panel" selected={selected} favorite={favoriteIds.includes(selected._id)} toggleFavorite={toggleFavorite} openChat={openChat} sendGcashNotice={sendGcashNotice} />}
   </section>;
 }
 
 function PlaceCard({ place, selected, onClick, favorite, toggleFavorite }) {
   return <article className={`place-card ${selected ? "selected" : ""}`}><button className="card-main" onClick={onClick}><img src={place.imageUrl} alt={`${place.name} storefront`} /><div className="card-copy"><div className="card-topline"><span>{place.category}</span><span>{place.distanceKm} km</span></div><h3>{place.name}</h3><p>{place.address}</p><div className="card-footer"><span className="rating">Star {place.rating}</span>{place.openNow ? <span className="open">Open now</span> : <span className="closed">Closed</span>}<span className="card-payment-logos">{place.acceptedPaymentMethods.slice(0, 3).map((method) => <PaymentLogo key={method} method={method} compact />)}</span></div></div></button><button className={`favorite-button ${favorite ? "saved" : ""}`} aria-label="Save place" onClick={() => toggleFavorite(place._id)}>{favorite ? "Saved" : "Save"}</button></article>;
-}
-
-function DetailsPanel({ selected, favorite, toggleFavorite, openChat, sendGcashNotice, variant = "" }) {
-  if (!selected) return <aside className={`details-panel empty ${variant}`}><p>Select a nearby place to view payment information.</p></aside>;
-  const contactName = selected.ownerName || "Listing contact";
-  return <aside className={`details-panel ${variant}`}><img className="details-image" src={selected.imageUrl} alt={`${selected.name} storefront`} /><div className="details-body"><div className="panel-heading"><span className="verify-badge">{selected.verificationStatus === "verified" ? "Verified listing" : "Pending verification"}</span><button className="text-button" onClick={() => toggleFavorite(selected._id)}>{favorite ? "Saved" : "Save"}</button></div><h2>{selected.name}</h2><p>{selected.address}</p><div className="owner-identity"><span>{contactInitials(contactName)}</span><div><small>Listing contact</small><strong>{contactName}</strong><em>{selected.ownerTitle || "Store contact"}</em></div></div><div className="detail-stats"><span>Star {selected.rating} ({selected.reviewCount || 0})</span><span>{selected.distanceKm} km away</span></div><div className="payment-list"><span>Accepted methods</span><div>{selected.acceptedPaymentMethods.map((method) => <PaymentLogo key={method} method={method} />)}</div></div><div className="details-actions"><button className="button primary" onClick={openChat}>Message {contactName.split(" ")[0]}</button><button className="button outline" onClick={sendGcashNotice}>GCash update</button></div><p className="quiet-note">A GCash update is a demo directory notification, never a payment receipt.</p></div></aside>;
 }
 
 function SavedPage({ user, savedPlaces, selected, setSelected, toggleFavorite, updatePreference, openDiscover }) {
