@@ -31,12 +31,15 @@ test("nearby filtering uses coordinates and the selected radius", async () => {
   assert.equal(results[0].ownerName, "Ariana Santos");
 });
 
-test("demo listings support nearby searches in Lapu-Lapu and Baguio", async () => {
+test("demo listings support nearby searches in Lapu-Lapu, Mawaque, and Baguio", async () => {
   const lapuLapuResults = await listEstablishments({ latitude: 10.295, longitude: 124.0005, radiusKm: 3 });
+  const mawaqueResults = await listEstablishments({ latitude: 15.2055, longitude: 120.5913, radiusKm: 1 });
   const baguioResults = await listEstablishments({ latitude: 16.41, longitude: 120.596, radiusKm: 3 });
 
   assert.ok(lapuLapuResults.some((item) => item.name === "Maribago Daily Mart"));
   assert.ok(lapuLapuResults.every((item) => item.distanceKm <= 3));
+  assert.ok(mawaqueResults.some((item) => item.name === "Mawaque PayHub Mart"));
+  assert.ok(mawaqueResults.every((item) => item.distanceKm <= 1));
   assert.ok(baguioResults.some((item) => item.name === "Session Brew House"));
   assert.ok(baguioResults.every((item) => item.distanceKm <= 3));
 });
