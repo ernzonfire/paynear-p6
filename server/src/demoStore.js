@@ -213,7 +213,12 @@ export const publicUser = (user) => ({
 
 function normalizeEstablishment(item) {
   const plain = item.toObject ? item.toObject() : item;
-  return { ...plain, _id: String(plain._id), distanceKm: plain.distanceKm ?? 1.4 };
+  return {
+    ...plain,
+    _id: String(plain._id),
+    ownerUserId: plain.ownerUserId ? String(plain.ownerUserId) : null,
+    distanceKm: plain.distanceKm ?? 1.4,
+  };
 }
 
 function calculateDistanceKm(latitude, longitude, location) {
@@ -281,12 +286,21 @@ export async function createEstablishment(input) {
     reviewCount: 0,
     ownerName: input.ownerName || "Unassigned owner",
     ownerTitle: input.ownerTitle || "Listing contact",
+    ownerUserId: input.ownerUserId || null,
     location: { type: "Point", coordinates: [Number(input.longitude || 121.049), Number(input.latitude || 14.64)] },
   };
   if (dbReady()) return normalizeEstablishment(await Establishment.create(record));
   const saved = { ...record, _id: `demo-${randomUUID()}`, distanceKm: Number(input.distanceKm || 1.5) };
   memory.establishments.unshift(saved);
   return saved;
+}
+
+export async function listOwnerEstablishments(ownerUserId) {
+  if (dbReady()) {
+    if (!mongoose.isValidObjectId(ownerUserId)) return [];
+    return (await Establishment.find({ ownerUserId }).sort({ createdAt: -1 }).lean()).map(normalizeEstablishment);
+  }
+  return memory.establishments.filter((item) => String(item.ownerUserId || "") === String(ownerUserId));
 }
 
 export async function updateEstablishment(id, updates) {

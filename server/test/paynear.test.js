@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import http from "node:http";
 import test from "node:test";
+import { createApp } from "../src/app.js";
 import { listEstablishments } from "../src/demoStore.js";
 import { suggestFilters } from "../src/services/aiService.js";
 
@@ -53,4 +55,51 @@ test("local AI assistant suggests safe directory filters without an API key", as
 
   if (previousKey) process.env.OPENAI_API_KEY = previousKey;
   if (previousModel) process.env.OPENAI_MODEL = previousModel;
+});
+
+test("business owners can create and manage only their own listings", async (context) => {
+  const { app } = createApp();
+  const server = http.createServer(app);
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  context.after(() => new Promise((resolve) => server.close(resolve)));
+  const baseUrl = `http://127.0.0.1:${server.address().port}/api`;
+  const request = async (path, options = {}) => {
+    const response = await fetch(`${baseUrl}${path}`, {
+      ...options,
+      headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    });
+    return { response, body: await response.json() };
+  };
+  const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+  const ownerRegistration = await request("/auth/register", {
+    method: "POST",
+    body: JSON.stringify({ name: "Owner One", email: `owner-one-${suffix}@paynear.test`, password: "testing123", role: "owner" }),
+  });
+  assert.equal(ownerRegistration.response.status, 201);
+  assert.equal(ownerRegistration.body.user.role, "owner");
+
+  const listing = await request("/establishments", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${ownerRegistration.body.token}` },
+    body: JSON.stringify({ name: "Owner One Store", category: "Cafe", address: "Maribago, Lapu-Lapu City", acceptedPaymentMethods: ["GCash", "QR Ph"], openNow: true }),
+  });
+  assert.equal(listing.response.status, 201);
+  assert.equal(listing.body.establishment.ownerName, "Owner One");
+  assert.equal(listing.body.establishment.verificationStatus, "pending");
+
+  const ownerListings = await request("/owner/establishments", { headers: { Authorization: `Bearer ${ownerRegistration.body.token}` } });
+  assert.equal(ownerListings.response.status, 200);
+  assert.ok(ownerListings.body.establishments.some((item) => item._id === listing.body.establishment._id));
+
+  const anotherOwner = await request("/auth/register", {
+    method: "POST",
+    body: JSON.stringify({ name: "Owner Two", email: `owner-two-${suffix}@paynear.test`, password: "testing123", role: "owner" }),
+  });
+  const forbiddenUpdate = await request(`/establishments/${listing.body.establishment._id}`, {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${anotherOwner.body.token}` },
+    body: JSON.stringify({ openNow: false }),
+  });
+  assert.equal(forbiddenUpdate.response.status, 403);
 });

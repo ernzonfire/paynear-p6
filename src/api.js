@@ -28,6 +28,7 @@ export const api = {
   notifications(token) { return request("/notifications", {}, token); },
   gcashNotice(establishmentId, token) { return request("/notifications/gcash-demo", { method: "POST", body: JSON.stringify({ establishmentId }) }, token); },
   readNotification(id, token) { return request(`/notifications/${id}/read`, { method: "PATCH" }, token); },
+  ownerListings(token) { return request("/owner/establishments", {}, token); },
   createListing(payload, token) { return request("/establishments", { method: "POST", body: JSON.stringify(payload) }, token); },
   updateListing(id, payload, token) { return request(`/establishments/${id}`, { method: "PUT", body: JSON.stringify(payload) }, token); },
   uploadImage(id, file, token) {

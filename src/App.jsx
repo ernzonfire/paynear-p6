@@ -109,7 +109,7 @@ function App() {
   });
   const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState("login");
-  const [authForm, setAuthForm] = useState({ name: "", email: "", password: "" });
+  const [authForm, setAuthForm] = useState({ name: "", email: "", password: "", role: "user" });
   const [authError, setAuthError] = useState("");
   const [notifications, setNotifications] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -119,6 +119,7 @@ function App() {
   const [chatStatus, setChatStatus] = useState("");
   const [listingForm, setListingForm] = useState(initialListing);
   const [adminMessage, setAdminMessage] = useState("");
+  const [ownerListings, setOwnerListings] = useState([]);
   const socketRef = useRef(null);
   const locationWatchRef = useRef(null);
 
@@ -142,6 +143,16 @@ function App() {
     }
   }, [filters]);
 
+  const loadOwnerListings = useCallback(async () => {
+    if (!token) return;
+    try {
+      const { establishments: listings } = await api.ownerListings(token);
+      setOwnerListings(listings);
+    } catch {
+      setOwnerListings([]);
+    }
+  }, [token]);
+
   useEffect(() => { loadResults(); }, [loadResults]);
 
   useEffect(() => () => {
@@ -160,6 +171,11 @@ function App() {
     if (!token) { setNotifications([]); return; }
     api.notifications(token).then(({ notifications: notices }) => setNotifications(notices)).catch(() => {});
   }, [token]);
+
+  useEffect(() => {
+    if (user?.role === "owner") loadOwnerListings();
+    else setOwnerListings([]);
+  }, [loadOwnerListings, user?.role]);
 
   useEffect(() => {
     if (activePage !== "chat" || !selected || !token || !user) return undefined;
@@ -200,6 +216,7 @@ function App() {
     setToken("");
     setUser(null);
     setNotifications([]);
+    setOwnerListings([]);
     setActivePage("discover");
     alert("You are signed out.");
   }
@@ -323,6 +340,7 @@ function App() {
       setAdminMessage(`${establishment.name} added as a ${establishment.verificationStatus} listing.`);
       setListingForm(initialListing);
       await loadResults();
+      if (user?.role === "owner") await loadOwnerListings();
     } catch (requestError) { setAdminMessage(requestError.message); }
   }
 
@@ -330,6 +348,7 @@ function App() {
     try {
       await api.updateListing(id, updates, token);
       await loadResults();
+      if (user?.role === "owner") await loadOwnerListings();
       setAdminMessage("Listing updated.");
     } catch (requestError) { setAdminMessage(requestError.message); }
   }
@@ -339,6 +358,7 @@ function App() {
     try {
       await api.uploadImage(id, file, token);
       await loadResults();
+      if (user?.role === "owner") await loadOwnerListings();
       setAdminMessage("Image uploaded and linked to the listing.");
     } catch (requestError) { setAdminMessage(requestError.message); }
   }
@@ -356,6 +376,7 @@ function App() {
           <button className={activePage === "discover" ? "active" : ""} onClick={() => selectPage("discover")}>Discover</button>
           <button className={activePage === "saved" ? "active" : ""} onClick={() => selectPage("saved")}>Saved</button>
           <button className={activePage === "chat" ? "active" : ""} onClick={openChat}>Messages</button>
+          {user?.role === "owner" && <button className={activePage === "owner" ? "active" : ""} onClick={() => selectPage("owner")}>My business</button>}
           {user?.role === "admin" && <button className={activePage === "admin" ? "active" : ""} onClick={() => selectPage("admin")}>Admin</button>}
         </nav>
         <div className="header-actions">
@@ -379,6 +400,7 @@ function App() {
         />}
         {activePage === "saved" && <SavedPage user={user} savedPlaces={savedPlaces} selected={selected} setSelected={setSelected} toggleFavorite={toggleFavorite} updatePreference={updatePreference} openDiscover={() => selectPage("discover")} />}
         {activePage === "chat" && <ChatPage user={user} selected={selected} messages={messages} draft={messageDraft} setDraft={setMessageDraft} sendMessage={sendMessage} demoStoreReply={demoStoreReply} status={chatStatus} requestSignIn={() => { setAuthMode("login"); setAuthOpen(true); }} />}
+        {activePage === "owner" && <OwnerPage user={user} listingForm={listingForm} setListingForm={setListingForm} createListing={createListing} listings={ownerListings} updateListing={updateListing} uploadListingImage={uploadListingImage} message={adminMessage} />}
         {activePage === "admin" && <AdminPage user={user} listingForm={listingForm} setListingForm={setListingForm} createListing={createListing} establishments={establishments} updateListing={updateListing} uploadListingImage={uploadListingImage} message={adminMessage} requestDemo={useDemoAdmin} />}
       </main>
 
@@ -422,7 +444,13 @@ function SavedPage({ user, savedPlaces, selected, setSelected, toggleFavorite, u
 function ChatPage({ user, selected, messages, draft, setDraft, sendMessage, demoStoreReply, status, requestSignIn }) {
   if (!user) return <section className="simple-page"><span className="eyebrow">REAL-TIME CHAT</span><h1>Ask before you go.</h1><p>Sign in to use the protected Socket.IO chat channel with a selected establishment.</p><button className="button primary" onClick={requestSignIn}>Sign in to chat</button></section>;
   if (!selected) return <section className="simple-page"><h1>Choose an establishment first.</h1><p>Return to Discover, select a listing, then start a conversation.</p></section>;
-  return <section className="chat-page"><div className="chat-card"><div className="chat-header"><img src={selected.imageUrl} alt="" /><div><span className="eyebrow">LIVE CHAT WITH {selected.ownerName || selected.name}</span><h1>{selected.name}</h1><p>{selected.ownerName ? `${selected.ownerName} · ${selected.ownerTitle || "Listing contact"} — ${status}` : status}</p></div></div><div className="messages">{messages.length === 0 ? <div className="chat-empty">Start by asking whether GCash is accepted today.</div> : messages.map((message) => <div key={message._id} className={`message ${message.senderRole === "establishment" ? "from-store" : "from-user"}`}><span>{message.senderRole === "establishment" ? selected.ownerName || selected.name : "You"}</span><p>{message.body}</p><small>{formatTime(message.createdAt)}</small></div>)}</div><form className="message-form" onSubmit={sendMessage}><input value={draft} onChange={(event) => setDraft(event.target.value)} maxLength="500" placeholder="Type a message..." /><button className="button primary">Send</button></form><div className="chat-demo"><span>For reviewer demo</span><button className="text-button" onClick={demoStoreReply}>Send sample store reply</button></div></div></section>;
+  return <section className="chat-page"><div className="chat-card"><div className="chat-header"><img src={selected.imageUrl} alt="" /><div><span className="eyebrow">LIVE CHAT WITH {selected.ownerName || selected.name}</span><h1>{selected.name}</h1><p>{selected.ownerName ? `${selected.ownerName} · ${selected.ownerTitle || "Listing contact"} — ${status}` : status}</p></div></div><div className="messages">{messages.length === 0 ? <div className="chat-empty">Start by asking whether GCash is accepted today.</div> : messages.map((message) => <div key={message._id} className={`message ${message.senderRole === "establishment" ? "from-store" : "from-user"}`}><span>{message.senderRole === "establishment" ? selected.ownerName || selected.name : "You"}</span><p>{message.body}</p><small>{formatTime(message.createdAt)}</small></div>)}</div><form className="message-form" onSubmit={sendMessage}><input value={draft} onChange={(event) => setDraft(event.target.value)} maxLength="500" placeholder="Type a message..." /><button className="button primary">Send</button></form>{user.role === "admin" && <div className="chat-demo"><span>For reviewer demo</span><button className="text-button" onClick={demoStoreReply}>Send sample store reply</button></div>}</div></section>;
+}
+
+function OwnerPage({ user, listingForm, setListingForm, createListing, listings, updateListing, uploadListingImage, message }) {
+  if (user?.role !== "owner") return <section className="simple-page"><span className="eyebrow">BUSINESS AREA</span><h1>Business owner access is required.</h1><p>Register as a business owner to submit and manage your own store listings.</p></section>;
+  const toggleMethod = (method) => setListingForm((current) => ({ ...current, acceptedPaymentMethods: current.acceptedPaymentMethods.includes(method) ? current.acceptedPaymentMethods.filter((item) => item !== method) : [...current.acceptedPaymentMethods, method] }));
+  return <section className="admin-page owner-page"><div className="page-heading"><span className="eyebrow">BUSINESS OWNER AREA</span><h1>Manage your store</h1><p>Submit your establishment for review, update opening status and payment methods, then upload a recognizable storefront image. Listings stay pending until an admin verifies them.</p></div><div className="admin-grid"><form className="listing-form" onSubmit={createListing}><h2>New store listing</h2><div className="owner-account-note"><strong>{user.name}</strong><span>Listed automatically as the business owner</span></div><label>Store name<input required value={listingForm.name} onChange={(event) => setListingForm((current) => ({ ...current, name: event.target.value }))} /></label><label>Category<select value={listingForm.category} onChange={(event) => setListingForm((current) => ({ ...current, category: event.target.value }))}>{CATEGORIES.slice(1).map((category) => <option key={category}>{category}</option>)}</select></label><label>Address<input required value={listingForm.address} onChange={(event) => setListingForm((current) => ({ ...current, address: event.target.value }))} placeholder="e.g. Maribago, Lapu-Lapu City" /></label><label className="switch"><input type="checkbox" checked={listingForm.openNow} onChange={(event) => setListingForm((current) => ({ ...current, openNow: event.target.checked }))} /><span>Open now</span></label><div className="choice-group"><span>Accepted payment methods</span><div className="chip-row">{METHODS.map((method) => <button type="button" key={method} className={listingForm.acceptedPaymentMethods.includes(method) ? "chip selected" : "chip"} onClick={() => toggleMethod(method)}>{method}</button>)}</div></div><button className="button primary" type="submit">Submit store for review</button>{message && <p className="form-message">{message}</p>}</form><div className="admin-list"><h2>My listings</h2>{listings.length === 0 ? <div className="empty-state"><h2>No store yet.</h2><p>Submit your first listing using the form.</p></div> : listings.map((place) => <article className="admin-row" key={place._id}><img src={place.imageUrl || payNearEmblem} alt="" /><div><strong>{place.name}</strong><span>{place.category} · {place.verificationStatus} · {place.openNow ? "Open now" : "Closed"}</span></div><div className="admin-row-actions"><button className="text-button" onClick={() => updateListing(place._id, { openNow: !place.openNow })}>{place.openNow ? "Mark closed" : "Mark open"}</button><label className="upload-label">Upload image<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => uploadListingImage(place._id, event.target.files?.[0])} /></label></div></article>)}</div></div></section>;
 }
 
 function AdminPage({ user, listingForm, setListingForm, createListing, establishments, updateListing, uploadListingImage, message, requestDemo }) {
@@ -433,7 +461,7 @@ function AdminPage({ user, listingForm, setListingForm, createListing, establish
 
 function AuthDialog({ mode, setMode, form, setForm, submit, error, close, demo }) {
   const update = (field) => (event) => setForm((current) => ({ ...current, [field]: event.target.value }));
-  return <div className="modal-backdrop" role="presentation"><section className="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="auth-title"><button className="modal-close" onClick={close} aria-label="Close">x</button><img className="auth-emblem" src={payNearEmblem} alt="" /><h2 id="auth-title">{mode === "login" ? "Welcome back" : "Create your PayNear account"}</h2><p>{mode === "login" ? "Sign in for saved places, updates, and live chat." : "Save payment preferences and message nearby establishments."}</p><form onSubmit={submit}>{mode === "register" && <label>Name<input required value={form.name} onChange={update("name")} /></label>}<label>Email<input type="email" required value={form.email} onChange={update("email")} /></label><label>Password<input type="password" minLength="6" required value={form.password} onChange={update("password")} /></label>{error && <p className="form-error">{error}</p>}<button className="button primary full" type="submit">{mode === "login" ? "Sign in" : "Create account"}</button></form><button className="demo-button" onClick={demo}>Use demo admin account</button><p className="auth-switch">{mode === "login" ? "New here?" : "Already have an account?"} <button onClick={() => setMode(mode === "login" ? "register" : "login")}>{mode === "login" ? "Register" : "Sign in"}</button></p></section></div>;
+  return <div className="modal-backdrop" role="presentation"><section className="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="auth-title"><button className="modal-close" onClick={close} aria-label="Close">x</button><img className="auth-emblem" src={payNearEmblem} alt="" /><h2 id="auth-title">{mode === "login" ? "Welcome back" : "Create your PayNear account"}</h2><p>{mode === "login" ? "Sign in for saved places, updates, and live chat." : "Choose a personal or business account. Business owners can submit and manage their own store listings."}</p><form onSubmit={submit}>{mode === "register" && <><label>Name<input required value={form.name} onChange={update("name")} /></label><fieldset className="role-choice"><legend>Account type</legend><label><input type="radio" name="role" value="user" checked={form.role === "user"} onChange={update("role")} /><span><strong>User</strong><small>Search, save places, and chat with stores.</small></span></label><label><input type="radio" name="role" value="owner" checked={form.role === "owner"} onChange={update("role")} /><span><strong>Business owner</strong><small>Submit and manage only your own store listings.</small></span></label></fieldset></>}<label>Email<input type="email" required value={form.email} onChange={update("email")} /></label><label>Password<input type="password" minLength="6" required value={form.password} onChange={update("password")} /></label>{error && <p className="form-error">{error}</p>}<button className="button primary full" type="submit">{mode === "login" ? "Sign in" : "Create account"}</button></form><button className="demo-button" onClick={demo}>Use demo admin account</button><p className="auth-switch">{mode === "login" ? "New here?" : "Already have an account?"} <button onClick={() => setMode(mode === "login" ? "register" : "login")}>{mode === "login" ? "Register" : "Sign in"}</button></p></section></div>;
 }
 
 export default App;

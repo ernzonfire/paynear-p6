@@ -20,6 +20,7 @@ import {
   getNotifications,
   getUser,
   listEstablishments,
+  listOwnerEstablishments,
   publicUser,
   readNotification,
   updateEstablishment,
@@ -88,10 +89,13 @@ export function createApp() {
     }
   };
 
-  const requireAdmin = (request, response, next) => {
-    if (request.user?.role !== "admin") return response.status(403).json({ message: "Administrator access is required." });
+  const requireOwner = (request, response, next) => {
+    if (request.user?.role !== "owner") return response.status(403).json({ message: "Business owner access is required." });
     return next();
   };
+
+  const canManageListing = (user, establishment) => user?.role === "admin"
+    || (user?.role === "owner" && String(establishment.ownerUserId || "") === String(user._id));
 
   app.get("/api/health", (_request, response) => {
     response.json({ status: "ok", mode: dbReady() ? "mongodb" : "demo", service: "paynear-api" });
@@ -100,11 +104,12 @@ export function createApp() {
   app.post("/api/auth/register", async (request, response, next) => {
     try {
       const { name, email, password } = request.body;
+      const role = request.body.role === "owner" ? "owner" : "user";
       if (!String(name || "").trim() || !String(email || "").includes("@") || String(password || "").length < 6) {
         return response.status(400).json({ message: "Enter a name, a valid email, and a password with at least 6 characters." });
       }
       if (await findUserByEmail(email)) return response.status(409).json({ message: "An account already uses that email." });
-      const user = await createUser({ name: name.trim(), email: email.toLowerCase().trim(), passwordHash: await bcrypt.hash(password, 10) });
+      const user = await createUser({ name: name.trim(), email: email.toLowerCase().trim(), passwordHash: await bcrypt.hash(password, 10), role });
       return response.status(201).json({ token: tokenFor(user), user: safeUser(user) });
     } catch (error) {
       return next(error);
@@ -180,20 +185,47 @@ export function createApp() {
     }
   });
 
-  app.post("/api/establishments", requireAuth, requireAdmin, async (request, response, next) => {
+  app.get("/api/owner/establishments", requireAuth, requireOwner, async (request, response, next) => {
     try {
+      return response.json({ establishments: await listOwnerEstablishments(String(request.user._id)) });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  app.post("/api/establishments", requireAuth, async (request, response, next) => {
+    try {
+      if (!["admin", "owner"].includes(request.user.role)) {
+        return response.status(403).json({ message: "Business owner or administrator access is required." });
+      }
       const errors = validateListing(request.body);
       if (errors.length) return response.status(400).json({ message: errors.join(" ") });
-      const establishment = await createEstablishment({ ...request.body, acceptedPaymentMethods: toMethods(request.body.acceptedPaymentMethods) });
+      const ownerInput = request.user.role === "owner"
+        ? {
+          ownerName: request.user.name,
+          ownerTitle: "Business owner",
+          ownerUserId: String(request.user._id),
+          verificationStatus: "pending",
+          isActive: true,
+        }
+        : {};
+      const establishment = await createEstablishment({ ...request.body, ...ownerInput, acceptedPaymentMethods: toMethods(request.body.acceptedPaymentMethods) });
       return response.status(201).json({ establishment });
     } catch (error) {
       return next(error);
     }
   });
 
-  app.put("/api/establishments/:id", requireAuth, requireAdmin, async (request, response, next) => {
+  app.put("/api/establishments/:id", requireAuth, async (request, response, next) => {
     try {
-      const updates = { ...request.body };
+      const existing = await getEstablishment(request.params.id);
+      if (!existing) return response.status(404).json({ message: "Establishment not found." });
+      if (!canManageListing(request.user, existing)) return response.status(403).json({ message: "You can manage only your own listings." });
+
+      const ownerAllowedFields = ["name", "category", "address", "acceptedPaymentMethods", "openNow", "latitude", "longitude"];
+      const updates = request.user.role === "owner"
+        ? Object.fromEntries(Object.entries(request.body).filter(([key]) => ownerAllowedFields.includes(key)))
+        : { ...request.body };
       if (updates.acceptedPaymentMethods) updates.acceptedPaymentMethods = toMethods(updates.acceptedPaymentMethods);
       if (updates.category && !ALLOWED_CATEGORIES.includes(updates.category)) return response.status(400).json({ message: "Choose a valid category." });
       const establishment = await updateEstablishment(request.params.id, updates);
@@ -204,9 +236,12 @@ export function createApp() {
     }
   });
 
-  app.post("/api/establishments/:id/image", requireAuth, requireAdmin, upload.single("image"), async (request, response, next) => {
+  app.post("/api/establishments/:id/image", requireAuth, upload.single("image"), async (request, response, next) => {
     try {
       if (!request.file) return response.status(400).json({ message: "Upload a JPG, PNG, or WebP image under 3 MB." });
+      const existing = await getEstablishment(request.params.id);
+      if (!existing) return response.status(404).json({ message: "Establishment not found." });
+      if (!canManageListing(request.user, existing)) return response.status(403).json({ message: "You can manage only your own listings." });
       const imageUrl = `${request.protocol}://${request.get("host")}/uploads/${request.file.filename}`;
       const establishment = await updateEstablishment(request.params.id, { imageUrl });
       if (!establishment) return response.status(404).json({ message: "Establishment not found." });
@@ -308,11 +343,12 @@ export function attachSocketServer(io, jwtSecret = JWT_SECRET) {
       const cleanBody = String(body || "").trim();
       const establishment = await getEstablishment(establishmentId);
       if (!establishment || !cleanBody || cleanBody.length > 500) return callback({ ok: false, message: "Enter a message up to 500 characters." });
+      const isListingOwner = socket.user.role === "owner" && String(establishment.ownerUserId || "") === String(socket.user._id);
       const message = await createMessage({
         establishmentId: String(establishment._id),
         senderUserId: String(socket.user._id),
-        senderName: socket.user.name,
-        senderRole: "user",
+        senderName: isListingOwner ? (establishment.ownerName || socket.user.name) : socket.user.name,
+        senderRole: isListingOwner ? "establishment" : "user",
         body: cleanBody,
       });
       io.to(`establishment:${establishmentId}`).emit("message:new", message);
