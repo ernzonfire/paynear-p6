@@ -17,11 +17,11 @@ const initialFilters = { query: "", method: "", radiusKm: 5, openNow: false, min
 const initialListing = { name: "", category: "Cafe", address: "", ownerName: "", ownerTitle: "Owner", acceptedPaymentMethods: ["GCash", "Cash"], openNow: true, verificationStatus: "pending" };
 
 const PAYMENT_BRANDS = {
-  GCash: { mark: "G", mapMark: "G", className: "gcash", logoSrc: "https://commons.wikimedia.org/wiki/Special:FilePath/GCash_logo.svg" },
-  Maya: { mark: "M", mapMark: "M", className: "maya", logoSrc: "https://commons.wikimedia.org/wiki/Special:FilePath/Maya_logo.svg" },
-  BPI: { mark: "BPI", mapMark: "BPI", className: "bpi", logoSrc: "https://commons.wikimedia.org/wiki/Special:FilePath/Official_BPI_Logo.svg" },
-  BDO: { mark: "BDO", mapMark: "BDO", className: "bdo", logoSrc: "https://commons.wikimedia.org/wiki/Special:FilePath/BDO_Unibank_(logo).svg" },
-  UnionBank: { mark: "UB", mapMark: "UB", className: "unionbank", logoSrc: "https://commons.wikimedia.org/wiki/Special:FilePath/Unionbanklogo.png" },
+  GCash: { mark: "G", className: "gcash", logoSrc: "https://commons.wikimedia.org/wiki/Special:FilePath/GCash_logo.svg" },
+  Maya: { mark: "M", className: "maya", logoSrc: "https://commons.wikimedia.org/wiki/Special:FilePath/Maya_logo.svg" },
+  BPI: { mark: "BPI", className: "bpi", logoSrc: "https://commons.wikimedia.org/wiki/Special:FilePath/Official_BPI_Logo.svg" },
+  BDO: { mark: "BDO", className: "bdo", logoSrc: "https://commons.wikimedia.org/wiki/Special:FilePath/BDO_Unibank_(logo).svg" },
+  UnionBank: { mark: "UB", className: "unionbank", logoSrc: "https://commons.wikimedia.org/wiki/Special:FilePath/Unionbanklogo.png" },
   Card: { mark: "CARD", className: "card" },
   Cash: { mark: "$", className: "cash" },
   "Bank Transfer": { mark: "BANK", className: "bank" },
@@ -42,9 +42,12 @@ function PaymentPreference({ option, selected, onSelect }) {
   </button>;
 }
 
-function mapIcon(method) {
-  const brand = PAYMENT_BRANDS[method] || PAYMENT_BRANDS.Card;
-  return L.divIcon({ className: "paynear-marker", html: `<span class="map-payment-logo ${brand.className}">${brand.mapMark || brand.mark}</span>`, iconSize: [38, 38], iconAnchor: [19, 34], popupAnchor: [0, -34] });
+function escapeMarkerAttribute(value) {
+  return String(value || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function storeMapIcon(place) {
+  return L.divIcon({ className: "place-map-marker", html: `<img src="${escapeMarkerAttribute(place.imageUrl)}" alt="" />`, iconSize: [46, 46], iconAnchor: [23, 38], popupAnchor: [0, -38] });
 }
 
 const userMapIcon = L.divIcon({ className: "paynear-marker user-marker", html: "<span></span>", iconSize: [20, 20], iconAnchor: [10, 10] });
@@ -68,7 +71,7 @@ function MapViewport({ center, radiusKm, liveLocation }) {
   return null;
 }
 
-function NearbyMap({ establishments, setSelected, userPosition, radiusKm, locationStatus, activeMethod, onOpenChat, fullScreen = false }) {
+function NearbyMap({ establishments, setSelected, userPosition, radiusKm, locationStatus, onOpenChat, fullScreen = false }) {
   const fallbackCenter = [14.64, 121.049];
   const center = userPosition ? [userPosition.latitude, userPosition.longitude] : fallbackCenter;
   return <div className={`map-shell ${fullScreen ? "map-shell-fullscreen" : ""}`}>
@@ -78,8 +81,7 @@ function NearbyMap({ establishments, setSelected, userPosition, radiusKm, locati
       {userPosition && <><Marker position={center} icon={userMapIcon}><Popup>You are here</Popup></Marker><Circle center={center} radius={radiusKm * 1000} pathOptions={{ color: "#007c78", fillColor: "#8bdbd3", fillOpacity: .2, weight: 3, opacity: .95 }}><Tooltip className="radius-tooltip" permanent direction="top" offset={[0, -16]} opacity={1}>{radiusKm} km search area</Tooltip></Circle></>}
       {establishments.filter((place) => place.location?.coordinates?.length === 2).map((place) => {
         const [longitude, latitude] = place.location.coordinates;
-        const markerMethod = place.acceptedPaymentMethods.includes(activeMethod) ? activeMethod : place.acceptedPaymentMethods?.[0];
-        return <Marker key={place._id} position={[latitude, longitude]} icon={mapIcon(markerMethod)} eventHandlers={{ click: () => setSelected(place) }}><Popup><div className="map-popup"><strong>{place.name}</strong><span>{place.distanceKm} km - {place.category}</span><small>{place.ownerName || "Listing contact"}</small><div>{place.acceptedPaymentMethods.slice(0, 3).map((method) => <PaymentLogo key={method} method={method} compact />)}</div><button onClick={() => { setSelected(place); onOpenChat(); }}>Message {(place.ownerName || place.name).split(" ")[0]}</button></div></Popup></Marker>;
+        return <Marker key={place._id} position={[latitude, longitude]} icon={storeMapIcon(place)} eventHandlers={{ click: () => setSelected(place) }}><Popup><div className="map-popup"><div className="map-popup-hero"><img src={place.imageUrl} alt={`${place.name} storefront`} /><div><strong>{place.name}</strong><span>{place.distanceKm} km - {place.category}</span><small>{place.ownerName || "Listing contact"}</small></div></div><div className="map-popup-payments">{place.acceptedPaymentMethods.slice(0, 3).map((method) => <PaymentLogo key={method} method={method} compact />)}</div><button onClick={() => { setSelected(place); onOpenChat(); }}>Message {(place.ownerName || place.name).split(" ")[0]}</button></div></Popup></Marker>;
       })}
     </MapContainer>
     <div className="map-overlay"><strong>{userPosition ? `${radiusKm} km radius around you` : "Metro Manila marketplace view"}</strong><span>{locationStatus || "Use live location to show your exact search radius."}</span></div>
@@ -386,7 +388,7 @@ function App() {
 function DiscoverPage({ filters, setFilters, aiPrompt, setAiPrompt, applyAiSuggestion, aiMessage, aiProvider, establishments, selected, setSelected, loading, error, favoriteIds, toggleFavorite, openChat, userPosition, requestNearbyLocation, locationStatus }) {
   const clearFilters = () => setFilters(initialFilters);
   return <section className="discover-map-page map-mode">
-    <NearbyMap establishments={establishments} setSelected={setSelected} userPosition={userPosition} radiusKm={filters.radiusKm} locationStatus={locationStatus} activeMethod={filters.method} onOpenChat={openChat} fullScreen />
+    <NearbyMap establishments={establishments} setSelected={setSelected} userPosition={userPosition} radiusKm={filters.radiusKm} locationStatus={locationStatus} onOpenChat={openChat} fullScreen />
 
     <aside className="map-control-panel" aria-label="Find nearby places">
       <div className="map-panel-heading"><div><span className="eyebrow">PAYNEAR MARKETPLACE</span><h1>Find nearby</h1></div><button className="text-button" onClick={clearFilters}>Reset</button></div>
