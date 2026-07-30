@@ -52,7 +52,7 @@ Without them, the assistant still works using local intent parsing for categorie
 
 ## Important scope boundary
 
-PayNear does **not** integrate with GCash, move money, store payment credentials, or verify a payment. GCash is a payment-method label and a sample notification type so users can discover what a listing reports it accepts.
+PayNear does **not** integrate with GCash, Maya, BPI, BDO, or UnionBank; it does not move money, store payment credentials, or verify a payment. Their wordmarks appear only as payment-method identifiers so users can see what a listing reports it accepts. PayNear is not sponsored by or affiliated with those brands.
 
 ## Scripts
 

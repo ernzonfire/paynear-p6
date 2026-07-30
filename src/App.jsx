@@ -12,11 +12,11 @@ const initialFilters = { query: "", method: "GCash", radiusKm: 5, openNow: false
 const initialListing = { name: "", category: "Cafe", address: "", acceptedPaymentMethods: ["GCash", "Cash"], openNow: true, verificationStatus: "pending" };
 
 const PAYMENT_BRANDS = {
-  GCash: { mark: "G", className: "gcash" },
-  Maya: { mark: "M", className: "maya" },
-  BPI: { mark: "BPI", className: "bpi" },
-  BDO: { mark: "BDO", className: "bdo" },
-  UnionBank: { mark: "UB", className: "unionbank" },
+  GCash: { mark: "G", className: "gcash", logoSrc: "https://commons.wikimedia.org/wiki/Special:FilePath/GCash_logo.svg" },
+  Maya: { mark: "M", className: "maya", logoSrc: "https://commons.wikimedia.org/wiki/Special:FilePath/Maya_logo.svg" },
+  BPI: { mark: "BPI", className: "bpi", logoSrc: "https://commons.wikimedia.org/wiki/Special:FilePath/Official_BPI_Logo.svg" },
+  BDO: { mark: "BDO", className: "bdo", logoSrc: "https://commons.wikimedia.org/wiki/Special:FilePath/BDO_Unibank_(logo).svg" },
+  UnionBank: { mark: "UB", className: "unionbank", logoSrc: "https://commons.wikimedia.org/wiki/Special:FilePath/Unionbanklogo.png" },
   Card: { mark: "CARD", className: "card" },
   Cash: { mark: "$", className: "cash" },
   "Bank Transfer": { mark: "BANK", className: "bank" },
@@ -24,12 +24,16 @@ const PAYMENT_BRANDS = {
 
 function PaymentLogo({ method, compact = false }) {
   const brand = PAYMENT_BRANDS[method] || PAYMENT_BRANDS.Card;
-  return <span className={`payment-logo ${brand.className} ${compact ? "compact" : ""}`} title={method}><b>{brand.mark}</b>{!compact && <span>{method}</span>}</span>;
+  return <span className={`payment-logo ${brand.className} ${brand.logoSrc ? "has-logo" : ""} ${compact ? "compact" : ""}`} title={method}>
+    {brand.logoSrc ? <img className="payment-brand-logo" src={brand.logoSrc} alt="" /> : <b>{brand.mark}</b>}
+    {!compact && <span>{method}</span>}
+  </span>;
 }
 
 function mapIcon(method) {
   const brand = PAYMENT_BRANDS[method] || PAYMENT_BRANDS.Card;
-  return L.divIcon({ className: "paynear-marker", html: `<span class="map-payment-logo ${brand.className}">${brand.mark}</span>`, iconSize: [38, 38], iconAnchor: [19, 34], popupAnchor: [0, -34] });
+  const mark = brand.logoSrc ? `<img src="${brand.logoSrc}" alt="" />` : brand.mark;
+  return L.divIcon({ className: "paynear-marker", html: `<span class="map-payment-logo ${brand.className} ${brand.logoSrc ? "has-logo" : ""}">${mark}</span>`, iconSize: [48, 38], iconAnchor: [24, 34], popupAnchor: [0, -34] });
 }
 
 const userMapIcon = L.divIcon({ className: "paynear-marker user-marker", html: "<span></span>", iconSize: [20, 20], iconAnchor: [10, 10] });
