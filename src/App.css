@@ -80,6 +80,9 @@
 .map-control-panel, .map-results-drawer, .map-details-panel { box-sizing: border-box; }
 @media (max-width: 520px) { .discover-map-page .map-shell-fullscreen, .discover-map-page .map-shell-fullscreen .nearby-map { height: 100%; min-height: 0; } }
 
+.radius-tooltip { border: 1px solid #007c78; border-radius: 999px; padding: 5px 8px; color: #005f5b; background: rgba(255, 255, 255, .96); box-shadow: 0 4px 12px rgba(0, 95, 91, .18); font-size: 10px; font-weight: 850; }
+.radius-tooltip::before { display: none; }
+
 /* Results live in the same scrollable marketplace panel as the search controls. */
 .map-sidebar-results { margin-top: 14px; padding-top: 14px; border-top: 1px solid #e2eeee; }
 .map-sidebar-results-heading { display: grid; gap: 3px; margin-bottom: 10px; }

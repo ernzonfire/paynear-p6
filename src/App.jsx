@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import L from "leaflet";
-import { Circle, MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
+import { Circle, MapContainer, Marker, Popup, TileLayer, Tooltip, useMap } from "react-leaflet";
 import { io } from "socket.io-client";
 import "leaflet/dist/leaflet.css";
 import { api, socketOrigin } from "./api.js";
@@ -54,9 +54,17 @@ function formatTime(value) {
   return new Intl.DateTimeFormat("en-PH", { hour: "numeric", minute: "2-digit" }).format(new Date(value));
 }
 
-function MapViewport({ center }) {
+function MapViewport({ center, radiusKm, liveLocation }) {
   const map = useMap();
-  useEffect(() => { map.flyTo(center, map.getZoom(), { animate: true, duration: .55 }); }, [center, map]);
+  useEffect(() => {
+    if (liveLocation) {
+      const searchArea = L.latLng(center[0], center[1]).toBounds(radiusKm * 2000);
+      const mapPadding = window.innerWidth > 720 ? { paddingTopLeft: [390, 70], paddingBottomRight: [70, 70] } : { padding: [24, 90] };
+      map.fitBounds(searchArea, { animate: true, duration: .55, maxZoom: 15, ...mapPadding });
+      return;
+    }
+    map.flyTo(center, map.getZoom(), { animate: true, duration: .55 });
+  }, [center, liveLocation, map, radiusKm]);
   return null;
 }
 
@@ -66,15 +74,15 @@ function NearbyMap({ establishments, setSelected, userPosition, radiusKm, locati
   return <div className={`map-shell ${fullScreen ? "map-shell-fullscreen" : ""}`}>
     <MapContainer center={center} zoom={userPosition ? 14 : 13} scrollWheelZoom className="nearby-map">
       <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>' url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" />
-      <MapViewport center={center} />
-      {userPosition && <><Marker position={center} icon={userMapIcon}><Popup>You are here</Popup></Marker><Circle center={center} radius={radiusKm * 1000} pathOptions={{ color: "#007c78", fillColor: "#8bdbd3", fillOpacity: .13, weight: 2 }} /></>}
+      <MapViewport center={center} radiusKm={radiusKm} liveLocation={Boolean(userPosition)} />
+      {userPosition && <><Marker position={center} icon={userMapIcon}><Popup>You are here</Popup></Marker><Circle center={center} radius={radiusKm * 1000} pathOptions={{ color: "#007c78", fillColor: "#8bdbd3", fillOpacity: .2, weight: 3, opacity: .95 }}><Tooltip className="radius-tooltip" permanent direction="top" offset={[0, -16]} opacity={1}>{radiusKm} km search area</Tooltip></Circle></>}
       {establishments.filter((place) => place.location?.coordinates?.length === 2).map((place) => {
         const [longitude, latitude] = place.location.coordinates;
         const markerMethod = place.acceptedPaymentMethods.includes(activeMethod) ? activeMethod : place.acceptedPaymentMethods?.[0];
         return <Marker key={place._id} position={[latitude, longitude]} icon={mapIcon(markerMethod)} eventHandlers={{ click: () => setSelected(place) }}><Popup><div className="map-popup"><strong>{place.name}</strong><span>{place.distanceKm} km - {place.category}</span><small>{place.ownerName || "Listing contact"}</small><div>{place.acceptedPaymentMethods.slice(0, 3).map((method) => <PaymentLogo key={method} method={method} compact />)}</div><button onClick={() => { setSelected(place); onOpenChat(); }}>Message {(place.ownerName || place.name).split(" ")[0]}</button></div></Popup></Marker>;
       })}
     </MapContainer>
-    <div className="map-overlay"><strong>{userPosition ? `${radiusKm} km radius around you` : "Metro Manila marketplace view"}</strong><span>{locationStatus || "Turn on location for an exact nearby radius."}</span></div>
+    <div className="map-overlay"><strong>{userPosition ? `${radiusKm} km radius around you` : "Metro Manila marketplace view"}</strong><span>{locationStatus || "Use live location to show your exact search radius."}</span></div>
   </div>;
 }
 
