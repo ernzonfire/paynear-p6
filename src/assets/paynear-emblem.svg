@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">PayNear emblem</title>
+  <desc id="desc">A teal location pin with a subtle letter P.</desc>
+  <defs>
+    <linearGradient id="pinGrad" x1="10%" y1="0%" x2="90%" y2="100%">
+      <stop offset="0%" stop-color="#008F86"/>
+      <stop offset="100%" stop-color="#16A39A"/>
+    </linearGradient>
+  </defs>
+  <path d="M512 90 C300 90 160 235 160 443 C160 623 286 789 437 959 C470 997 528 983 540 934 C547 910 538 884 520 864 C385 712 285 578 285 445 C285 303 378 206 512 206 C646 206 742 293 742 420 C742 529 673 603 598 656 C567 678 558 722 578 754 C602 792 656 801 691 774 C806 691 868 574 868 422 C868 224 723 90 512 90Z" fill="url(#pinGrad)"/>
+</svg>

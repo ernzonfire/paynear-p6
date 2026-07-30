@@ -4,6 +4,7 @@ import { Circle, MapContainer, Marker, Popup, TileLayer, useMap } from "react-le
 import { io } from "socket.io-client";
 import "leaflet/dist/leaflet.css";
 import { api, socketOrigin } from "./api.js";
+import payNearEmblem from "./assets/paynear-emblem.svg";
 
 const METHODS = ["GCash", "Maya", "BPI", "BDO", "UnionBank", "Card", "Cash", "Bank Transfer"];
 const CATEGORIES = ["All", "Cafe", "Restaurant", "Grocery", "Pharmacy", "Convenience Store"];
@@ -332,7 +333,7 @@ function App() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <button className="brand" onClick={() => selectPage("discover")} aria-label="PayNear home"><span className="brand-dot">P</span><span>PayNear</span></button>
+        <button className="brand" onClick={() => selectPage("discover")} aria-label="PayNear home"><img className="brand-emblem" src={payNearEmblem} alt="" /><span className="brand-wordmark"><span className="brand-pay">Pay</span><span className="brand-near">Near</span></span></button>
         <nav className="nav-links" aria-label="Primary navigation">
           <button className={activePage === "discover" ? "active" : ""} onClick={() => selectPage("discover")}>Discover</button>
           <button className={activePage === "saved" ? "active" : ""} onClick={() => selectPage("saved")}>Saved</button>
@@ -421,7 +422,7 @@ function AdminPage({ user, listingForm, setListingForm, createListing, establish
 
 function AuthDialog({ mode, setMode, form, setForm, submit, error, close, demo }) {
   const update = (field) => (event) => setForm((current) => ({ ...current, [field]: event.target.value }));
-  return <div className="modal-backdrop" role="presentation"><section className="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="auth-title"><button className="modal-close" onClick={close} aria-label="Close">x</button><span className="brand-dot">P</span><h2 id="auth-title">{mode === "login" ? "Welcome back" : "Create your PayNear account"}</h2><p>{mode === "login" ? "Sign in for saved places, updates, and live chat." : "Save payment preferences and message nearby establishments."}</p><form onSubmit={submit}>{mode === "register" && <label>Name<input required value={form.name} onChange={update("name")} /></label>}<label>Email<input type="email" required value={form.email} onChange={update("email")} /></label><label>Password<input type="password" minLength="6" required value={form.password} onChange={update("password")} /></label>{error && <p className="form-error">{error}</p>}<button className="button primary full" type="submit">{mode === "login" ? "Sign in" : "Create account"}</button></form><button className="demo-button" onClick={demo}>Use demo admin account</button><p className="auth-switch">{mode === "login" ? "New here?" : "Already have an account?"} <button onClick={() => setMode(mode === "login" ? "register" : "login")}>{mode === "login" ? "Register" : "Sign in"}</button></p></section></div>;
+  return <div className="modal-backdrop" role="presentation"><section className="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="auth-title"><button className="modal-close" onClick={close} aria-label="Close">x</button><img className="auth-emblem" src={payNearEmblem} alt="" /><h2 id="auth-title">{mode === "login" ? "Welcome back" : "Create your PayNear account"}</h2><p>{mode === "login" ? "Sign in for saved places, updates, and live chat." : "Save payment preferences and message nearby establishments."}</p><form onSubmit={submit}>{mode === "register" && <label>Name<input required value={form.name} onChange={update("name")} /></label>}<label>Email<input type="email" required value={form.email} onChange={update("email")} /></label><label>Password<input type="password" minLength="6" required value={form.password} onChange={update("password")} /></label>{error && <p className="form-error">{error}</p>}<button className="button primary full" type="submit">{mode === "login" ? "Sign in" : "Create account"}</button></form><button className="demo-button" onClick={demo}>Use demo admin account</button><p className="auth-switch">{mode === "login" ? "New here?" : "Already have an account?"} <button onClick={() => setMode(mode === "login" ? "register" : "login")}>{mode === "login" ? "Register" : "Sign in"}</button></p></section></div>;
 }
 
 export default App;
