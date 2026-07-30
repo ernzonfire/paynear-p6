@@ -6,11 +6,11 @@ import "leaflet/dist/leaflet.css";
 import { api, socketOrigin } from "./api.js";
 import payNearEmblem from "./assets/paynear-emblem.svg";
 
-const METHODS = ["GCash", "Maya", "BPI", "BDO", "UnionBank", "Card", "Cash", "Bank Transfer"];
+const METHODS = ["GCash", "Maya", "QR Ph", "InstaPay", "BPI", "BDO", "UnionBank", "Card", "Cash", "Bank Transfer"];
 const CATEGORIES = ["All", "Cafe", "Restaurant", "Grocery", "Pharmacy", "Convenience Store"];
 const PAYMENT_FILTER_OPTIONS = [
   { method: "", label: "All places", detail: "No payment filter" },
-  ...METHODS.map((method) => ({ method, label: method, detail: method === "Card" ? "Cards welcome" : method === "Cash" ? "Cash accepted" : "Accepted here" })),
+  ...METHODS.map((method) => ({ method, label: method, detail: method === "QR Ph" ? "Scan to pay" : method === "InstaPay" ? "Instant transfer" : method === "Card" ? "Cards welcome" : method === "Cash" ? "Cash accepted" : "Accepted here" })),
 ];
 
 const initialFilters = { query: "", method: "", radiusKm: 5, openNow: false, minRating: 0, latitude: "", longitude: "" };
@@ -19,6 +19,8 @@ const initialListing = { name: "", category: "Cafe", address: "", ownerName: "",
 const PAYMENT_BRANDS = {
   GCash: { mark: "G", className: "gcash", logoSrc: "https://commons.wikimedia.org/wiki/Special:FilePath/GCash_logo.svg" },
   Maya: { mark: "M", className: "maya", logoSrc: "https://commons.wikimedia.org/wiki/Special:FilePath/Maya_logo.svg" },
+  "QR Ph": { mark: "QR", className: "qrph" },
+  InstaPay: { mark: "IP", className: "instapay" },
   BPI: { mark: "BPI", className: "bpi", logoSrc: "https://commons.wikimedia.org/wiki/Special:FilePath/Official_BPI_Logo.svg" },
   BDO: { mark: "BDO", className: "bdo", logoSrc: "https://commons.wikimedia.org/wiki/Special:FilePath/BDO_Unibank_(logo).svg" },
   UnionBank: { mark: "UB", className: "unionbank", logoSrc: "https://commons.wikimedia.org/wiki/Special:FilePath/Unionbanklogo.png" },

@@ -93,6 +93,9 @@
 .map-popup-hero small { color: var(--teal-dark); font-size: 10px; font-weight: 750; }
 .map-popup-payments { display: flex; gap: 4px !important; align-items: center; }
 
+.payment-logo.qrph b { min-width: 21px; background: #075ea8; font-size: 7px; }
+.payment-logo.instapay b { min-width: 21px; background: #6e3c9f; font-size: 7px; }
+
 /* Results live in the same scrollable marketplace panel as the search controls. */
 .map-sidebar-results { margin-top: 14px; padding-top: 14px; border-top: 1px solid #e2eeee; }
 .map-sidebar-results-heading { display: grid; gap: 3px; margin-bottom: 10px; }

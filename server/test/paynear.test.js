@@ -11,6 +11,16 @@ test("advanced filtering returns only matching open GCash places", async () => {
   assert.ok(results.every((item) => item.distanceKm <= 2));
 });
 
+test("QR Ph and InstaPay are accepted payment filters", async () => {
+  const qrPhResults = await listEstablishments({ method: "QR Ph", radiusKm: 3 });
+  const instaPayResults = await listEstablishments({ method: "InstaPay", radiusKm: 3 });
+
+  assert.ok(qrPhResults.length > 0);
+  assert.ok(qrPhResults.every((item) => item.acceptedPaymentMethods.includes("QR Ph")));
+  assert.ok(instaPayResults.length > 0);
+  assert.ok(instaPayResults.every((item) => item.acceptedPaymentMethods.includes("InstaPay")));
+});
+
 test("nearby filtering uses coordinates and the selected radius", async () => {
   const results = await listEstablishments({ latitude: 14.6351, longitude: 121.0342, radiusKm: 1, method: "GCash" });
   assert.ok(results.length > 0);
