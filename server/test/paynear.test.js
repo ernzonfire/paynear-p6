@@ -19,6 +19,16 @@ test("nearby filtering uses coordinates and the selected radius", async () => {
   assert.equal(results[0].ownerName, "Ariana Santos");
 });
 
+test("demo listings support nearby searches in Lapu-Lapu and Baguio", async () => {
+  const lapuLapuResults = await listEstablishments({ latitude: 10.295, longitude: 124.0005, radiusKm: 3 });
+  const baguioResults = await listEstablishments({ latitude: 16.41, longitude: 120.596, radiusKm: 3 });
+
+  assert.ok(lapuLapuResults.some((item) => item.name === "Maribago Daily Mart"));
+  assert.ok(lapuLapuResults.every((item) => item.distanceKm <= 3));
+  assert.ok(baguioResults.some((item) => item.name === "Session Brew House"));
+  assert.ok(baguioResults.every((item) => item.distanceKm <= 3));
+});
+
 test("local AI assistant suggests safe directory filters without an API key", async () => {
   const previousKey = process.env.OPENAI_API_KEY;
   const previousModel = process.env.OPENAI_MODEL;
