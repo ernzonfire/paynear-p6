@@ -6,8 +6,8 @@ The repository is deliberately separate from the P4 KusinaMate project.
 
 ## What is included
 
-- Advanced nearby discovery: place/category search, payment method, distance, open-now, and rating filters.
-- GCash as a searchable payment-method label, with clear **demo-only** in-app availability notifications.
+- Facebook Marketplace-style nearby discovery: list or map view, payment-branded pins, a browser-location radius circle, plus place/category, distance, open-now, and rating filters.
+- Recognizable e-wallet and bank identifiers for GCash, Maya, BPI, BDO, UnionBank, cards, cash, and bank transfers; GCash notifications remain **demo-only** directory updates.
 - JWT registration and sign-in, saved places, and preferred payment method.
 - Socket.IO real-time Messenger-style establishment chat.
 - Admin-only establishment creation, verification, deactivation, and JPG/PNG/WebP image upload.

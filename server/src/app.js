@@ -32,7 +32,7 @@ dotenv.config();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const uploadsDir = path.resolve(__dirname, "../uploads");
 const JWT_SECRET = process.env.JWT_SECRET || "paynear-demo-secret-change-before-deployment";
-const ALLOWED_METHODS = ["GCash", "Maya", "Card", "Cash", "Bank Transfer"];
+const ALLOWED_METHODS = ["GCash", "Maya", "BPI", "BDO", "UnionBank", "Card", "Cash", "Bank Transfer"];
 const ALLOWED_CATEGORIES = ["Cafe", "Restaurant", "Grocery", "Pharmacy", "Convenience Store"];
 
 const storage = multer.diskStorage({

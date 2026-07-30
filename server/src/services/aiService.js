@@ -1,4 +1,4 @@
-const PAYMENT_KEYWORDS = ["GCash", "Maya", "Card", "Cash", "Bank Transfer"];
+const PAYMENT_KEYWORDS = ["GCash", "Maya", "BPI", "BDO", "UnionBank", "Card", "Cash", "Bank Transfer"];
 const CATEGORY_KEYWORDS = ["Cafe", "Restaurant", "Grocery", "Pharmacy", "Convenience Store"];
 
 function normalize(value) {
@@ -51,7 +51,7 @@ export async function suggestFilters(prompt) {
         input: [
           {
             role: "system",
-            content: "You convert a PayNear user request into search filters. Return JSON only with query, method, radiusKm, openNow, minRating, and message. Allowed methods: GCash, Maya, Card, Cash, Bank Transfer. Allowed categories: Cafe, Restaurant, Grocery, Pharmacy, Convenience Store. Do not give financial, payment, or factual advice beyond filter suggestions.",
+            content: "You convert a PayNear user request into search filters. Return JSON only with query, method, radiusKm, openNow, minRating, and message. Allowed methods: GCash, Maya, BPI, BDO, UnionBank, Card, Cash, Bank Transfer. Allowed categories: Cafe, Restaurant, Grocery, Pharmacy, Convenience Store. Do not give financial, payment, or factual advice beyond filter suggestions.",
           },
           { role: "user", content: prompt },
         ],

@@ -11,6 +11,13 @@ test("advanced filtering returns only matching open GCash places", async () => {
   assert.ok(results.every((item) => item.distanceKm <= 2));
 });
 
+test("nearby filtering uses coordinates and the selected radius", async () => {
+  const results = await listEstablishments({ latitude: 10.3295, longitude: 123.9057, radiusKm: 1, method: "GCash" });
+  assert.ok(results.length > 0);
+  assert.ok(results.every((item) => item.distanceKm <= 1));
+  assert.equal(results[0].name, "Brew & Go Cafe");
+});
+
 test("local AI assistant suggests safe directory filters without an API key", async () => {
   const previousKey = process.env.OPENAI_API_KEY;
   const previousModel = process.env.OPENAI_MODEL;

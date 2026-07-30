@@ -13,11 +13,14 @@
     "test": "npm run lint && npm --prefix server test"
   },
   "dependencies": {
+    "leaflet": "^1.9.4",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
+    "react-leaflet": "^5.0.0",
     "socket.io-client": "^4.8.3"
   },
   "devDependencies": {
+    "@types/leaflet": "^1.9.21",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
@@ -26,7 +29,13 @@
     "vite": "^8.1.1"
   },
   "description": "PayNear P6 - nearby payment-method discovery with real-time chat and AI-assisted filters.",
-  "keywords": ["mern", "socket.io", "location", "payments", "uplift"],
+  "keywords": [
+    "mern",
+    "socket.io",
+    "location",
+    "payments",
+    "uplift"
+  ],
   "author": "The Last Room",
   "license": "MIT"
 }

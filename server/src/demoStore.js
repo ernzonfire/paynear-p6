@@ -9,6 +9,7 @@ const defaultEstablishments = [
     category: "Cafe",
     address: "IT Park, Lahug, Cebu City",
     distanceKm: 0.6,
+    location: { type: "Point", coordinates: [123.9057, 10.3295] },
     acceptedPaymentMethods: ["GCash", "Maya", "Cash", "Card"],
     verificationStatus: "verified",
     isActive: true,
@@ -23,7 +24,8 @@ const defaultEstablishments = [
     category: "Grocery",
     address: "Apas, Cebu City",
     distanceKm: 1.2,
-    acceptedPaymentMethods: ["GCash", "Cash", "Card", "Bank Transfer"],
+    location: { type: "Point", coordinates: [123.9007, 10.3241] },
+    acceptedPaymentMethods: ["GCash", "BPI", "BDO", "Card", "Cash"],
     verificationStatus: "verified",
     isActive: true,
     openNow: true,
@@ -37,7 +39,8 @@ const defaultEstablishments = [
     category: "Pharmacy",
     address: "Banilad, Cebu City",
     distanceKm: 1.8,
-    acceptedPaymentMethods: ["GCash", "Maya", "Cash"],
+    location: { type: "Point", coordinates: [123.8914, 10.3393] },
+    acceptedPaymentMethods: ["GCash", "Maya", "BPI", "Cash"],
     verificationStatus: "verified",
     isActive: true,
     openNow: true,
@@ -51,7 +54,8 @@ const defaultEstablishments = [
     category: "Restaurant",
     address: "Mabolo, Cebu City",
     distanceKm: 2.7,
-    acceptedPaymentMethods: ["Cash", "Card"],
+    location: { type: "Point", coordinates: [123.9039, 10.3176] },
+    acceptedPaymentMethods: ["Cash", "Card", "BDO"],
     verificationStatus: "pending",
     isActive: true,
     openNow: false,
@@ -65,7 +69,8 @@ const defaultEstablishments = [
     category: "Convenience Store",
     address: "Talamban, Cebu City",
     distanceKm: 3.1,
-    acceptedPaymentMethods: ["GCash", "Maya", "Cash"],
+    location: { type: "Point", coordinates: [123.8625, 10.3577] },
+    acceptedPaymentMethods: ["GCash", "Maya", "UnionBank", "Cash"],
     verificationStatus: "verified",
     isActive: true,
     openNow: true,
@@ -99,15 +104,34 @@ function normalizeEstablishment(item) {
   return { ...plain, _id: String(plain._id), distanceKm: plain.distanceKm ?? 1.4 };
 }
 
+function calculateDistanceKm(latitude, longitude, location) {
+  if (!location?.coordinates?.length) return null;
+  const [targetLongitude, targetLatitude] = location.coordinates;
+  const toRadians = (value) => (value * Math.PI) / 180;
+  const earthRadiusKm = 6371;
+  const deltaLatitude = toRadians(targetLatitude - latitude);
+  const deltaLongitude = toRadians(targetLongitude - longitude);
+  const start = toRadians(latitude);
+  const end = toRadians(targetLatitude);
+  const a = Math.sin(deltaLatitude / 2) ** 2 + Math.cos(start) * Math.cos(end) * Math.sin(deltaLongitude / 2) ** 2;
+  return Math.round(earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) * 10) / 10;
+}
+
 export async function listEstablishments(filters = {}) {
-  const { query = "", method = "", radiusKm = 5, openNow = false, minRating = 0 } = filters;
+  const { query = "", method = "", radiusKm = 5, openNow = false, minRating = 0, latitude, longitude } = filters;
+  const hasLocation = Number.isFinite(Number(latitude)) && Number.isFinite(Number(longitude));
+  const parsedLatitude = Number(latitude);
+  const parsedLongitude = Number(longitude);
   if (dbReady()) {
     const mongoFilter = { isActive: true, rating: { $gte: Number(minRating) || 0 } };
     if (query) mongoFilter.$or = [{ name: { $regex: query, $options: "i" } }, { category: { $regex: query, $options: "i" } }];
     if (method) mongoFilter.acceptedPaymentMethods = method;
     if (openNow) mongoFilter.openNow = true;
-    const records = await Establishment.find(mongoFilter).sort({ rating: -1, createdAt: -1 }).lean();
-    return records.map(normalizeEstablishment).filter((item) => item.distanceKm <= Number(radiusKm || 5));
+    if (hasLocation) mongoFilter.location = { $near: { $geometry: { type: "Point", coordinates: [parsedLongitude, parsedLatitude] }, $maxDistance: Number(radiusKm || 5) * 1000 } };
+    const queryBuilder = Establishment.find(mongoFilter);
+    if (!hasLocation) queryBuilder.sort({ rating: -1, createdAt: -1 });
+    const records = await queryBuilder.lean();
+    return records.map(normalizeEstablishment).map((item) => ({ ...item, distanceKm: hasLocation ? calculateDistanceKm(parsedLatitude, parsedLongitude, item.location) : item.distanceKm }));
   }
 
   const queryLower = query.toLowerCase();
@@ -117,7 +141,8 @@ export async function listEstablishments(filters = {}) {
     .filter((item) => !method || item.acceptedPaymentMethods.includes(method))
     .filter((item) => !openNow || item.openNow)
     .filter((item) => item.rating >= Number(minRating || 0))
-    .filter((item) => item.distanceKm <= Number(radiusKm || 5))
+    .map((item) => ({ ...item, distanceKm: hasLocation ? calculateDistanceKm(parsedLatitude, parsedLongitude, item.location) : item.distanceKm }))
+    .filter((item) => item.distanceKm !== null && item.distanceKm <= Number(radiusKm || 5))
     .sort((a, b) => a.distanceKm - b.distanceKm || b.rating - a.rating);
 }
 
