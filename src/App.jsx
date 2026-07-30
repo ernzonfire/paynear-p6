@@ -54,7 +54,7 @@ function NearbyMap({ establishments, selected, setSelected, userPosition, radius
   const center = userPosition ? [userPosition.latitude, userPosition.longitude] : fallbackCenter;
   return <div className="map-shell">
     <MapContainer center={center} zoom={userPosition ? 14 : 13} scrollWheelZoom className="nearby-map">
-      <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+      <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>' url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" />
       <MapViewport center={center} />
       {userPosition && <><Marker position={center} icon={userMapIcon}><Popup>You are here</Popup></Marker><Circle center={center} radius={radiusKm * 1000} pathOptions={{ color: "#007c78", fillColor: "#8bdbd3", fillOpacity: .13, weight: 2 }} /></>}
       {establishments.filter((place) => place.location?.coordinates?.length === 2).map((place) => {
