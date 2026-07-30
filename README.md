@@ -39,7 +39,7 @@ This account exists only in the local demo store. Change or remove it before dep
 
 ## Database and AI setup
 
-The backend starts in `demo` mode with sample Cebu locations when `MONGODB_URI` is blank. Add a MongoDB connection string in `server/.env` for persistent data. The Mongoose schemas include a GeoJSON location field and 2dsphere index for production geospatial queries.
+The backend starts in `demo` mode with sample Metro Manila locations and mock listing contacts when `MONGODB_URI` is blank. Add a MongoDB connection string in `server/.env` for persistent data. The Mongoose schemas include a GeoJSON location field and 2dsphere index for production geospatial queries.
 
 To enable the external AI provider, set both values in `server/.env`:
 

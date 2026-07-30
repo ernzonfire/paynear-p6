@@ -12,10 +12,11 @@ test("advanced filtering returns only matching open GCash places", async () => {
 });
 
 test("nearby filtering uses coordinates and the selected radius", async () => {
-  const results = await listEstablishments({ latitude: 10.3295, longitude: 123.9057, radiusKm: 1, method: "GCash" });
+  const results = await listEstablishments({ latitude: 14.6351, longitude: 121.0342, radiusKm: 1, method: "GCash" });
   assert.ok(results.length > 0);
   assert.ok(results.every((item) => item.distanceKm <= 1));
   assert.equal(results[0].name, "Brew & Go Cafe");
+  assert.equal(results[0].ownerName, "Ariana Santos");
 });
 
 test("local AI assistant suggests safe directory filters without an API key", async () => {

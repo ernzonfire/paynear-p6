@@ -21,9 +21,11 @@ const establishmentSchema = new Schema(
     address: { type: String, required: true, trim: true },
     location: {
       type: { type: String, enum: ["Point"], default: "Point" },
-      coordinates: { type: [Number], default: [123.8854, 10.3157] },
+      coordinates: { type: [Number], default: [121.049, 14.64] },
     },
     acceptedPaymentMethods: [{ type: String, trim: true }],
+    ownerName: { type: String, trim: true, default: "Unassigned owner" },
+    ownerTitle: { type: String, trim: true, default: "Listing contact" },
     imageUrl: { type: String, default: "" },
     verificationStatus: { type: String, enum: ["verified", "pending"], default: "pending" },
     isActive: { type: Boolean, default: true },

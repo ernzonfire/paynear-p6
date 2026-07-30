@@ -158,6 +158,8 @@ export function createApp() {
       const establishments = await listEstablishments({
         query: request.query.query,
         method: request.query.method,
+        latitude: request.query.latitude,
+        longitude: request.query.longitude,
         radiusKm: Math.min(10, Math.max(1, Number(request.query.radiusKm) || 5)),
         openNow: request.query.openNow === "true",
         minRating: Math.max(0, Number(request.query.minRating) || 0),
@@ -322,7 +324,7 @@ export function attachSocketServer(io, jwtSecret = JWT_SECRET) {
       if (!establishment) return callback({ ok: false, message: "Establishment not found." });
       const message = await createMessage({
         establishmentId: String(establishment._id),
-        senderName: establishment.name,
+        senderName: establishment.ownerName || establishment.name,
         senderRole: "establishment",
         body: `Hi ${socket.user.name.split(" ")[0]}! Yes, we currently list GCash as accepted. Please confirm at the counter before payment.`,
       });
@@ -330,7 +332,7 @@ export function attachSocketServer(io, jwtSecret = JWT_SECRET) {
         userId: String(socket.user._id),
         establishmentId: String(establishment._id),
         type: "chat",
-        title: `${establishment.name} replied`,
+        title: `${establishment.ownerName || establishment.name} replied`,
         message: "A new chat reply is available. This is not a payment confirmation.",
       });
       io.to(`establishment:${establishmentId}`).emit("message:new", message);
