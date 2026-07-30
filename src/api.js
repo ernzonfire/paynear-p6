@@ -1,0 +1,38 @@
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000/api";
+
+export const socketOrigin = API_URL.replace(/\/api\/?$/, "");
+
+export async function request(path, options = {}, token = "") {
+  const headers = { ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }), ...(options.headers || {}) };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const response = await fetch(`${API_URL}${path}`, { ...options, headers });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.message || "Request failed.");
+  return data;
+}
+
+export const api = {
+  listEstablishments(filters) {
+    const query = new URLSearchParams(Object.entries(filters).filter(([, value]) => value !== "" && value !== false && value !== 0));
+    return request(`/establishments?${query}`);
+  },
+  getEstablishment(id) { return request(`/establishments/${id}`); },
+  register(payload) { return request("/auth/register", { method: "POST", body: JSON.stringify(payload) }); },
+  login(payload) { return request("/auth/login", { method: "POST", body: JSON.stringify(payload) }); },
+  me(token) { return request("/auth/me", {}, token); },
+  preferences(preferredPaymentMethod, token) { return request("/account/preferences", { method: "PUT", body: JSON.stringify({ preferredPaymentMethod }) }, token); },
+  favorite(id, token) { return request(`/account/favorites/${id}`, { method: "POST" }, token); },
+  aiSuggest(prompt) { return request("/ai/suggest", { method: "POST", body: JSON.stringify({ prompt }) }); },
+  messages(id, token) { return request(`/messages/${id}`, {}, token); },
+  notifications(token) { return request("/notifications", {}, token); },
+  gcashNotice(establishmentId, token) { return request("/notifications/gcash-demo", { method: "POST", body: JSON.stringify({ establishmentId }) }, token); },
+  readNotification(id, token) { return request(`/notifications/${id}/read`, { method: "PATCH" }, token); },
+  createListing(payload, token) { return request("/establishments", { method: "POST", body: JSON.stringify(payload) }, token); },
+  updateListing(id, payload, token) { return request(`/establishments/${id}`, { method: "PUT", body: JSON.stringify(payload) }, token); },
+  uploadImage(id, file, token) {
+    const form = new FormData();
+    form.append("image", file);
+    return request(`/establishments/${id}/image`, { method: "POST", body: form }, token);
+  },
+};

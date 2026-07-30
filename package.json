@@ -1,0 +1,32 @@
+{
+  "name": "paynear-p6",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "server": "npm --prefix server run dev",
+    "dev:full": "concurrently -n client,server -c cyan,green \"npm run dev\" \"npm run server\"",
+    "build": "vite build",
+    "lint": "oxlint",
+    "preview": "vite preview",
+    "test": "npm run lint && npm --prefix server test"
+  },
+  "dependencies": {
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "socket.io-client": "^4.8.3"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "concurrently": "^10.0.4",
+    "oxlint": "^1.71.0",
+    "vite": "^8.1.1"
+  },
+  "description": "PayNear P6 - nearby payment-method discovery with real-time chat and AI-assisted filters.",
+  "keywords": ["mern", "socket.io", "location", "payments", "uplift"],
+  "author": "The Last Room",
+  "license": "MIT"
+}
