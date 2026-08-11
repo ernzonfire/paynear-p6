@@ -649,7 +649,7 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${activePage === "discover" && !user?.mustChangePassword ? "map-app-shell" : ""}`}>
       <header className="topbar">
         <button className="brand" onClick={() => selectPage("discover")} aria-label="PayNear home"><img className="brand-emblem" src={payNearEmblem} alt="" /><span className="brand-wordmark"><span className="brand-pay">Pay</span><span className="brand-near">Near</span></span></button>
         <nav className="nav-links" aria-label="Primary navigation">
@@ -744,6 +744,7 @@ function DiscoverPage({ filters, setFilters, aiPrompt, setAiPrompt, applyAiSugge
   const hasActiveFilters = Boolean(filters.query || filters.method || filters.openNow || Number(filters.minRating));
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   return <section className="discover-map-page map-mode">
+    <h1 className="sr-only">Find nearby places</h1>
     <NearbyMap establishments={establishments} setSelected={setSelected} userPosition={userPosition} radiusKm={filters.radiusKm} locationStatus={locationStatus} onOpenChat={openChat} fullScreen />
 
     <aside className={`map-control-panel ${mobilePanelOpen ? "mobile-expanded" : ""}`} aria-label="Find nearby places">
@@ -752,7 +753,7 @@ function DiscoverPage({ filters, setFilters, aiPrompt, setAiPrompt, applyAiSugge
         <span className="mobile-sheet-copy"><strong>{mobilePanelOpen ? "Search and filters" : "Find nearby"}</strong><small>{loading ? "Looking around..." : `${establishments.length} places around you`}</small></span>
         <span className="mobile-sheet-chevron" aria-hidden="true">{mobilePanelOpen ? "↓" : "↑"}</span>
       </button>
-      <div className="map-panel-heading"><div><span className="eyebrow">PAYNEAR MARKETPLACE</span><h1>Find nearby</h1></div><button className="text-button" onClick={clearFilters}>Reset</button></div>
+      <div className="map-panel-heading"><div><span className="eyebrow">PAYNEAR MARKETPLACE</span><h2>Find nearby</h2></div><button className="text-button" onClick={clearFilters}>Reset</button></div>
       <label className="map-input-label">Search a place or category<input value={filters.query} onFocus={() => setMobilePanelOpen(true)} onChange={(event) => setFilters((current) => ({ ...current, query: event.target.value }))} placeholder="e.g. cafe or pharmacy" /></label>
       <div className="map-filter-group"><span>What are you looking for?</span><div className="chip-row">{CATEGORIES.map((category) => <button key={category} className={filters.query === category ? "chip selected" : "chip"} onClick={() => setFilters((current) => ({ ...current, query: category === "All" ? "" : category }))}>{category}</button>)}</div></div>
       <div className="map-payment-section"><div className="map-payment-heading"><div><span>Payment preference <em>Optional</em></span><p>Choose one only when it matters to you.</p></div></div><div className="payment-preference-carousel">{PAYMENT_FILTER_OPTIONS.map((option) => <PaymentPreference key={option.method || "all"} option={option} selected={filters.method === option.method} onSelect={() => setFilters((current) => ({ ...current, method: option.method }))} />)}</div></div>
