@@ -1,0 +1,33 @@
+{
+  "id": "/",
+  "name": "PayNear",
+  "short_name": "PayNear",
+  "description": "Find nearby establishments by location and accepted payment method.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f5fbfa",
+  "theme_color": "#007c78",
+  "categories": ["navigation", "shopping", "finance"],
+  "icons": [
+    {
+      "src": "/icons/paynear-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/paynear-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/paynear-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
