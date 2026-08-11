@@ -134,7 +134,12 @@ export function createApp() {
     || (user?.role === "owner" && String(establishment.ownerUserId || "") === String(user._id));
 
   app.get("/api/health", (_request, response) => {
-    response.json({ status: "ok", mode: dbReady() ? "mongodb" : "memory", service: "paynear-api" });
+    response.json({
+      status: "ok",
+      mode: dbReady() ? "mongodb" : "memory",
+      service: "paynear-api",
+      revision: String(process.env.RENDER_GIT_COMMIT || "local").slice(0, 7),
+    });
   });
 
   app.post("/api/auth/register", async (request, response, next) => {
