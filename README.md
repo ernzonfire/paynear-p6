@@ -9,13 +9,13 @@ The current approved scope is documented in [`output/pdf/PayNear_Project_Proposa
 ## What is included
 
 - Facebook Marketplace-style nearby discovery: list or map view, payment-branded pins, a browser-location radius circle, plus place/category, distance, open-now, and rating filters.
-- Recognizable e-wallet and bank identifiers for GCash, Maya, BPI, BDO, UnionBank, cards, cash, and bank transfers; GCash notifications remain **demo-only** directory updates.
+- Recognizable e-wallet and bank identifiers for GCash, Maya, BPI, BDO, UnionBank, cards, cash, and bank transfers.
 - JWT registration and sign-in, saved places, and preferred payment method.
 - Socket.IO real-time Messenger-style establishment chat.
 - Business-owner registration and private store submission with address, map coordinates, payment methods, and a JPG/PNG/WebP storefront image.
 - A protected administrator review queue for verifying, rejecting, requesting changes, publishing, and deactivating listings.
 - AI Place Assistant that turns a natural-language request into reviewable search filters. It has a safe local fallback and can call OpenAI when configured.
-- Express/Mongoose models for users, establishments, moderation audit fields, persistent store images, chat messages, and notifications. The API runs in usable in-memory demo mode until MongoDB is connected.
+- Express/Mongoose models for users, establishments, moderation audit fields, persistent store images, chat messages, and notifications. The API can use a non-persistent in-memory development store until MongoDB is connected.
 
 Only establishments with both `verificationStatus: "verified"` and `isActive: true` are returned by the public API. Owner submissions and owner edits to verified business details return the listing to the private administrator review queue.
 
@@ -33,19 +33,19 @@ npm run dev:full
 
 Open [http://localhost:5173](http://localhost:5173). The API is at `http://localhost:4000/api`.
 
-The sign-in dialog includes one-click access for all three demo roles:
-
-| Role | Email | Password | Landing area |
-| --- | --- | --- | --- |
-| User | `user@paynear.demo` | `user123` | Public discovery |
-| Owner | `owner@paynear.demo` | `owner123` | My business |
-| Admin | `admin@paynear.demo` | `admin123` | Moderation dashboard |
-
-These accounts exist only while the API is using its in-memory demo store. They are never accepted after MongoDB connects. In production, users and owners create real accounts through registration. Set `ADMIN_EMAIL` and an `ADMIN_PASSWORD` of at least 12 characters; the server securely seeds that administrator only when the email does not already exist.
+Sign-in always requires manual email and password entry. Users and business owners can create their own accounts. Administrator registration is not public: configure the private team accounts through `ADMIN_ACCOUNTS_JSON` after connecting MongoDB. The server securely seeds only missing administrators with one-time temporary passwords. On first sign-in, an administrator is restricted to the password-change screen and cannot use the dashboard, protected APIs, notifications, or chat until setting a private password of at least 12 characters.
 
 ## Database and AI setup
 
-The backend starts in `demo` mode with sample Philippine locations and mock listing contacts when `MONGODB_URI` is blank. Add a MongoDB connection string in `server/.env` for persistent accounts, submissions, review history, messages, notifications, and uploaded store images. The Mongoose schemas include a GeoJSON location field and 2dsphere index for production geospatial queries.
+The backend starts in in-memory development mode with sample Philippine locations and mock listing contacts when `MONGODB_URI` is blank. Add a MongoDB connection string in `server/.env` for persistent accounts, submissions, review history, messages, notifications, and uploaded store images. The Mongoose schemas include a GeoJSON location field and 2dsphere index for production geospatial queries.
+
+Provision the PayNear team administrators only through a private server environment variable:
+
+```text
+ADMIN_ACCOUNTS_JSON=[{"name":"Admin One","email":"admin.one@example.com","password":"use-a-strong-temporary-password"},{"name":"Admin Two","email":"admin.two@example.com","password":"use-another-temporary-password"}]
+```
+
+Do not expose this value in React, Vercel client variables, screenshots, or Git.
 
 To enable the external AI provider, set both values in `server/.env`:
 
@@ -93,5 +93,5 @@ Project board: [PayNear workflow](https://trello.com/b/6a34f3da0f1db896cc034cdd)
 ## Suggested deployment
 
 - Frontend: Vercel or Netlify, with `VITE_API_URL` set to the public API URL.
-- Backend: Render, Railway, or a Node-capable host, with `CLIENT_URL`, `PUBLIC_API_URL`, `JWT_SECRET`, `MONGODB_URI`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, and optional AI variables set there.
+- Backend: Render, Railway, or a Node-capable host, with `CLIENT_URL`, `PUBLIC_API_URL`, `JWT_SECRET`, `MONGODB_URI`, `ADMIN_ACCOUNTS_JSON`, and optional AI variables set there.
 - MongoDB: MongoDB Atlas, with the database network access configured for the backend host.

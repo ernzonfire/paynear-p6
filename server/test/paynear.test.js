@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
+import bcrypt from "bcryptjs";
 import http from "node:http";
 import test from "node:test";
 import { createApp } from "../src/app.js";
-import { listEstablishments } from "../src/demoStore.js";
+import { createUser, listEstablishments } from "../src/demoStore.js";
 import { suggestFilters } from "../src/services/aiService.js";
 
 test("advanced filtering returns only matching open GCash places", async () => {
@@ -31,7 +32,7 @@ test("nearby filtering uses coordinates and the selected radius", async () => {
   assert.equal(results[0].ownerName, "Ariana Santos");
 });
 
-test("demo listings support nearby searches in Lapu-Lapu, Mawaque, and Baguio", async () => {
+test("sample listings support nearby searches in Lapu-Lapu, Mawaque, and Baguio", async () => {
   const lapuLapuResults = await listEstablishments({ latitude: 10.295, longitude: 124.0005, radiusKm: 3 });
   const mawaqueResults = await listEstablishments({ latitude: 15.2055, longitude: 120.5913, radiusKm: 1 });
   const baguioResults = await listEstablishments({ latitude: 16.41, longitude: 120.596, radiusKm: 3 });
@@ -60,7 +61,7 @@ test("local AI assistant suggests safe directory filters without an API key", as
   if (previousModel) process.env.OPENAI_MODEL = previousModel;
 });
 
-test("demo user, owner, and administrator accounts sign in with the correct roles", async (context) => {
+test("manually created user, owner, and provisioned administrator accounts sign in with the correct roles", async (context) => {
   const { app } = createApp();
   const server = http.createServer(app);
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -75,11 +76,24 @@ test("demo user, owner, and administrator accounts sign in with the correct role
     return { response, body: await response.json() };
   };
 
+  const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const accounts = [
-    { email: "user@paynear.demo", password: "user123", role: "user" },
-    { email: "owner@paynear.demo", password: "owner123", role: "owner" },
-    { email: "admin@paynear.demo", password: "admin123", role: "admin" },
+    { name: "Manual User", email: `manual-user-${suffix}@paynear.test`, password: "manualuser123", role: "user" },
+    { name: "Manual Owner", email: `manual-owner-${suffix}@paynear.test`, password: "manualowner123", role: "owner" },
   ];
+
+  for (const account of accounts) {
+    const response = await fetch(`${baseUrl}/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(account),
+    });
+    assert.equal(response.status, 201);
+  }
+
+  const admin = { name: "Provisioned Admin", email: `provisioned-admin-${suffix}@paynear.test`, password: "adminsecure123", role: "admin" };
+  await createUser({ name: admin.name, email: admin.email, passwordHash: await bcrypt.hash(admin.password, 10), role: admin.role });
+  accounts.push(admin);
 
   for (const account of accounts) {
     const result = await login(account.email, account.password);
@@ -88,16 +102,112 @@ test("demo user, owner, and administrator accounts sign in with the correct role
     assert.ok(result.body.token);
   }
 
-  const wrongPassword = await login("admin@paynear.demo", "incorrect-password");
+  const wrongPassword = await login(admin.email, "incorrect-password");
   assert.equal(wrongPassword.response.status, 401);
+});
 
-  const owner = await login("owner@paynear.demo", "owner123");
-  const ownerListings = await fetch(`${baseUrl}/owner/establishments`, {
-    headers: { Authorization: `Bearer ${owner.body.token}` },
+test("a provisioned admin must replace the temporary password before accessing protected features", async (context) => {
+  const { app } = createApp();
+  const server = http.createServer(app);
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  context.after(() => new Promise((resolve) => server.close(resolve)));
+  const baseUrl = `http://127.0.0.1:${server.address().port}/api`;
+  const request = async (path, options = {}) => {
+    const response = await fetch(`${baseUrl}${path}`, {
+      ...options,
+      headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    });
+    return { response, body: await response.json() };
+  };
+  const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const email = `first-login-admin-${suffix}@paynear.test`;
+  const temporaryPassword = "PayNear-Temporary-123";
+  const newPassword = "PayNear-Private-Password-456";
+  await createUser({
+    name: "First Login Admin",
+    email,
+    passwordHash: await bcrypt.hash(temporaryPassword, 10),
+    role: "admin",
+    mustChangePassword: true,
+    sessionVersion: 0,
   });
-  const ownerListingsBody = await ownerListings.json();
-  assert.equal(ownerListings.status, 200);
-  assert.ok(ownerListingsBody.establishments.some((item) => item.name === "Sampaguita Kitchen"));
+
+  const login = await request("/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password: temporaryPassword }),
+  });
+  assert.equal(login.response.status, 200);
+  assert.equal(login.body.user.mustChangePassword, true);
+
+  const blockedAdminQueue = await request("/admin/establishments", {
+    headers: { Authorization: `Bearer ${login.body.token}` },
+  });
+  assert.equal(blockedAdminQueue.response.status, 403);
+  assert.equal(blockedAdminQueue.body.code, "PASSWORD_CHANGE_REQUIRED");
+
+  const reusedTemporaryPassword = await request("/auth/change-password", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${login.body.token}` },
+    body: JSON.stringify({ newPassword: temporaryPassword }),
+  });
+  assert.equal(reusedTemporaryPassword.response.status, 400);
+
+  const changed = await request("/auth/change-password", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${login.body.token}` },
+    body: JSON.stringify({ newPassword }),
+  });
+  assert.equal(changed.response.status, 200);
+  assert.equal(changed.body.user.mustChangePassword, false);
+  assert.notEqual(changed.body.token, login.body.token);
+
+  const oldSession = await request("/auth/me", {
+    headers: { Authorization: `Bearer ${login.body.token}` },
+  });
+  assert.equal(oldSession.response.status, 401);
+
+  const adminQueue = await request("/admin/establishments", {
+    headers: { Authorization: `Bearer ${changed.body.token}` },
+  });
+  assert.equal(adminQueue.response.status, 200);
+
+  const oldPasswordLogin = await request("/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password: temporaryPassword }),
+  });
+  assert.equal(oldPasswordLogin.response.status, 401);
+
+  const newPasswordLogin = await request("/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password: newPassword }),
+  });
+  assert.equal(newPasswordLogin.response.status, 200);
+  assert.equal(newPasswordLogin.body.user.mustChangePassword, false);
+});
+
+test("public registration cannot create administrators and requires stronger passwords", async (context) => {
+  const { app } = createApp();
+  const server = http.createServer(app);
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  context.after(() => new Promise((resolve) => server.close(resolve)));
+  const baseUrl = `http://127.0.0.1:${server.address().port}/api`;
+  const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+  const adminAttempt = await fetch(`${baseUrl}/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "Public Admin Attempt", email: `admin-attempt-${suffix}@paynear.test`, password: "securepass123", role: "admin" }),
+  });
+  const adminAttemptBody = await adminAttempt.json();
+  assert.equal(adminAttempt.status, 201);
+  assert.equal(adminAttemptBody.user.role, "user");
+
+  const weakPassword = await fetch(`${baseUrl}/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "Weak Password", email: `weak-${suffix}@paynear.test`, password: "short", role: "owner" }),
+  });
+  assert.equal(weakPassword.status, 400);
 });
 
 test("owner submissions stay private until an administrator verifies and publishes them", async (context) => {
@@ -165,9 +275,12 @@ test("owner submissions stay private until an administrator verifies and publish
   });
   assert.equal(forbiddenUpdate.response.status, 403);
 
+  const adminEmail = `workflow-admin-${suffix}@paynear.test`;
+  const adminPassword = "workflowadmin123";
+  await createUser({ name: "Workflow Admin", email: adminEmail, passwordHash: await bcrypt.hash(adminPassword, 10), role: "admin" });
   const adminLogin = await request("/auth/login", {
     method: "POST",
-    body: JSON.stringify({ email: "admin@paynear.demo", password: "admin123" }),
+    body: JSON.stringify({ email: adminEmail, password: adminPassword }),
   });
   assert.equal(adminLogin.response.status, 200);
   assert.equal(adminLogin.body.user.role, "admin");

@@ -27,12 +27,6 @@ const initialListing = {
   openNow: true,
 };
 
-const DEMO_ACCOUNTS = {
-  user: { email: "user@paynear.demo", password: "user123" },
-  owner: { email: "owner@paynear.demo", password: "owner123" },
-  admin: { email: "admin@paynear.demo", password: "admin123" },
-};
-
 const PAYMENT_BRANDS = {
   GCash: { mark: "G", className: "gcash", logoSrc: "https://commons.wikimedia.org/wiki/Special:FilePath/GCash_logo.svg" },
   Maya: { mark: "M", className: "maya", logoSrc: "https://commons.wikimedia.org/wiki/Special:FilePath/Maya_logo.svg" },
@@ -127,8 +121,11 @@ function App() {
   const [authMode, setAuthMode] = useState("login");
   const [authForm, setAuthForm] = useState({ name: "", email: "", password: "", role: "user" });
   const [authError, setAuthError] = useState("");
+  const [passwordForm, setPasswordForm] = useState({ password: "", confirmPassword: "" });
+  const [passwordError, setPasswordError] = useState("");
   const [notifications, setNotifications] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   const [toast, setToast] = useState("");
   const [messages, setMessages] = useState([]);
   const [messageDraft, setMessageDraft] = useState("");
@@ -140,6 +137,7 @@ function App() {
   const [adminListings, setAdminListings] = useState([]);
   const socketRef = useRef(null);
   const locationWatchRef = useRef(null);
+  const profileMenuRef = useRef(null);
 
   const alert = useCallback((message) => {
     setToast(message);
@@ -190,28 +188,48 @@ function App() {
   useEffect(() => {
     if (!token) return;
     api.me(token)
-      .then(({ user: currentUser }) => setUser(currentUser))
+      .then(({ user: currentUser }) => {
+        setUser(currentUser);
+        localStorage.setItem("paynear-user", JSON.stringify(currentUser));
+        if (currentUser.mustChangePassword) setActivePage("change-password");
+      })
       .catch(() => logout());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   useEffect(() => {
-    if (!token) { setNotifications([]); return; }
+    if (!token || user?.mustChangePassword) { setNotifications([]); return; }
     api.notifications(token).then(({ notifications: notices }) => setNotifications(notices)).catch(() => {});
-  }, [token]);
+  }, [token, user?.mustChangePassword]);
 
   useEffect(() => {
-    if (user?.role === "owner") loadOwnerListings();
+    if (!showProfile) return undefined;
+    const closeOutside = (event) => {
+      if (!profileMenuRef.current?.contains(event.target)) setShowProfile(false);
+    };
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") setShowProfile(false);
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [showProfile]);
+
+  useEffect(() => {
+    if (user?.role === "owner" && !user.mustChangePassword) loadOwnerListings();
     else setOwnerListings([]);
-  }, [loadOwnerListings, user?.role]);
+  }, [loadOwnerListings, user?.mustChangePassword, user?.role]);
 
   useEffect(() => {
-    if (user?.role === "admin") loadAdminListings();
+    if (user?.role === "admin" && !user.mustChangePassword) loadAdminListings();
     else setAdminListings([]);
-  }, [loadAdminListings, user?.role]);
+  }, [loadAdminListings, user?.mustChangePassword, user?.role]);
 
   useEffect(() => {
-    if (activePage !== "chat" || !selected || !token || !user) return undefined;
+    if (activePage !== "chat" || !selected || !token || !user || user.mustChangePassword) return undefined;
     let mounted = true;
     setChatStatus("Connecting secure chat...");
     api.messages(selected._id, token).then(({ messages: history }) => {
@@ -251,6 +269,10 @@ function App() {
     setNotifications([]);
     setOwnerListings([]);
     setAdminListings([]);
+    setPasswordForm({ password: "", confirmPassword: "" });
+    setPasswordError("");
+    setShowNotifications(false);
+    setShowProfile(false);
     setActivePage("discover");
     alert("You are signed out.");
   }
@@ -260,10 +282,17 @@ function App() {
     localStorage.setItem("paynear-user", JSON.stringify(result.user));
     setToken(result.token);
     setUser(result.user);
-    setActivePage(result.user.role === "admin" ? "admin" : result.user.role === "owner" ? "owner" : "discover");
+    setActivePage(result.user.mustChangePassword ? "change-password" : result.user.role === "admin" ? "admin" : result.user.role === "owner" ? "owner" : "discover");
     setAuthOpen(false);
     setAuthError("");
-    alert(`Welcome, ${result.user.name.split(" ")[0]}.`);
+    setAuthForm({ name: "", email: "", password: "", role: "user" });
+    alert(result.user.mustChangePassword ? "Set your new password to finish signing in." : `Welcome, ${result.user.name.split(" ")[0]}.`);
+  }
+
+  function closeAuthDialog() {
+    setAuthOpen(false);
+    setAuthError("");
+    setAuthForm((current) => ({ ...current, password: "" }));
   }
 
   async function submitAuth(event) {
@@ -277,12 +306,29 @@ function App() {
     }
   }
 
-  async function signInDemoAccount(role = "admin") {
+  async function submitPasswordChange(event) {
+    event.preventDefault();
+    setPasswordError("");
+    if (passwordForm.password.length < 12) {
+      setPasswordError("Use at least 12 characters for your new administrator password.");
+      return;
+    }
+    if (passwordForm.password !== passwordForm.confirmPassword) {
+      setPasswordError("The password confirmation does not match.");
+      return;
+    }
     try {
-      const account = DEMO_ACCOUNTS[role];
-      if (!account) throw new Error("Choose a valid demo account.");
-      storeSession(await api.login(account));
-    } catch (requestError) { setAuthError(requestError.message); }
+      const result = await api.changePassword(passwordForm.password, token);
+      localStorage.setItem("paynear-token", result.token);
+      localStorage.setItem("paynear-user", JSON.stringify(result.user));
+      setToken(result.token);
+      setUser(result.user);
+      setPasswordForm({ password: "", confirmPassword: "" });
+      setActivePage(result.user.role === "admin" ? "admin" : result.user.role === "owner" ? "owner" : "discover");
+      alert("Password updated. Your PayNear account is ready.");
+    } catch (requestError) {
+      setPasswordError(requestError.message);
+    }
   }
 
   async function applyAiSuggestion(event) {
@@ -349,6 +395,7 @@ function App() {
 
   function openChat() {
     if (!token) { setAuthOpen(true); setAuthMode("login"); return; }
+    if (user?.mustChangePassword) { setActivePage("change-password"); return; }
     setActivePage("chat");
   }
 
@@ -360,13 +407,6 @@ function App() {
       if (!result.ok) alert(result.message);
     });
     setMessageDraft("");
-  }
-
-  function demoStoreReply() {
-    if (!socketRef.current || !selected) return;
-    socketRef.current.emit("demo-store-reply", { establishmentId: selected._id }, (result) => {
-      if (!result.ok) alert(result.message);
-    });
   }
 
   async function createListing(event) {
@@ -439,8 +479,9 @@ function App() {
   }
 
   function selectPage(page) {
-    setActivePage(page);
+    setActivePage(user?.mustChangePassword ? "change-password" : page);
     setShowNotifications(false);
+    setShowProfile(false);
   }
 
   return (
@@ -448,25 +489,38 @@ function App() {
       <header className="topbar">
         <button className="brand" onClick={() => selectPage("discover")} aria-label="PayNear home"><img className="brand-emblem" src={payNearEmblem} alt="" /><span className="brand-wordmark"><span className="brand-pay">Pay</span><span className="brand-near">Near</span></span></button>
         <nav className="nav-links" aria-label="Primary navigation">
-          <button className={activePage === "discover" ? "active" : ""} onClick={() => selectPage("discover")}>Discover</button>
-          <button className={activePage === "saved" ? "active" : ""} onClick={() => selectPage("saved")}>Saved</button>
-          <button className={activePage === "chat" ? "active" : ""} onClick={openChat}>Messages</button>
-          {user?.role === "owner" && <button className={activePage === "owner" ? "active" : ""} onClick={() => selectPage("owner")}>My business</button>}
-          {user?.role === "admin" && <button className={activePage === "admin" ? "active" : ""} onClick={() => selectPage("admin")}>Admin</button>}
+          {user?.mustChangePassword
+            ? <button className="active" onClick={() => selectPage("change-password")}>Set new password</button>
+            : <>
+              <button className={activePage === "discover" ? "active" : ""} onClick={() => selectPage("discover")}>Discover</button>
+              <button className={activePage === "saved" ? "active" : ""} onClick={() => selectPage("saved")}>Saved</button>
+              <button className={activePage === "chat" ? "active" : ""} onClick={openChat}>Messages</button>
+              {user?.role === "owner" && <button className={activePage === "owner" ? "active" : ""} onClick={() => selectPage("owner")}>My business</button>}
+              {user?.role === "admin" && <button className={activePage === "admin" ? "active" : ""} onClick={() => selectPage("admin")}>Admin</button>}
+            </>}
         </nav>
         <div className="header-actions">
-          {user && <div className="notice-wrap">
-            <button className="icon-button" aria-label="Notifications" onClick={() => setShowNotifications((value) => !value)}>Notifications{unreadCount > 0 && <span className="notice-count">{unreadCount}</span>}</button>
+          {user && !user.mustChangePassword && <div className="notice-wrap">
+            <button className="icon-button" aria-label="Notifications" aria-expanded={showNotifications} onClick={() => { setShowNotifications((value) => !value); setShowProfile(false); }}>Notifications{unreadCount > 0 && <span className="notice-count">{unreadCount}</span>}</button>
             {showNotifications && <div className="notification-popover">
               <div className="popover-heading"><strong>Updates</strong><span>{unreadCount} unread</span></div>
               {notifications.length === 0 ? <p className="empty-note">No updates yet.</p> : notifications.slice(0, 5).map((notice) => <button key={notice._id} className={`notice-item ${notice.isRead ? "read" : ""}`} onClick={() => markRead(notice._id)}><strong>{notice.title}</strong><span>{notice.message}</span></button>)}
             </div>}
           </div>}
-          {user ? <button className="profile-button" onClick={logout}><span>{user.name.slice(0, 1).toUpperCase()}</span>{user.name.split(" ")[0]}</button> : <button className="button outline" onClick={() => { setAuthMode("login"); setAuthOpen(true); }}>Sign in</button>}
+          {user ? <div className="profile-wrap" ref={profileMenuRef}>
+            <button className="profile-button" aria-expanded={showProfile} aria-haspopup="menu" onClick={() => { setShowProfile((value) => !value); setShowNotifications(false); }}><span className="profile-avatar">{user.name.slice(0, 1).toUpperCase()}</span><span className="profile-name">{user.name.split(" ")[0]}</span><span className="profile-chevron" aria-hidden="true">⌄</span></button>
+            {showProfile && <div className="profile-menu" role="menu">
+              <div className="profile-summary"><span className="profile-avatar large">{user.name.slice(0, 1).toUpperCase()}</span><div><strong>{user.name}</strong><span>{user.email}</span><small>{user.role === "owner" ? "Business owner" : user.role === "admin" ? "Administrator" : "PayNear user"}</small></div></div>
+              <button className="signout-button" role="menuitem" onClick={logout}>Sign out</button>
+            </div>}
+          </div> : <button className="button outline" onClick={() => { setAuthMode("login"); setAuthOpen(true); }}>Sign in</button>}
         </div>
       </header>
 
       <main>
+        {user?.mustChangePassword ? <PasswordChangePage
+          user={user} form={passwordForm} setForm={setPasswordForm} submit={submitPasswordChange} error={passwordError} logout={logout}
+        /> : <>
         {activePage === "discover" && <DiscoverPage
           filters={filters} setFilters={setFilters} aiPrompt={aiPrompt} setAiPrompt={setAiPrompt} applyAiSuggestion={applyAiSuggestion}
           aiMessage={aiMessage} aiProvider={aiProvider} establishments={establishments} selected={selected} setSelected={setSelected}
@@ -474,7 +528,7 @@ function App() {
           userPosition={userPosition} requestNearbyLocation={requestNearbyLocation} locationStatus={locationStatus}
         />}
         {activePage === "saved" && <SavedPage user={user} savedPlaces={savedPlaces} selected={selected} setSelected={setSelected} toggleFavorite={toggleFavorite} updatePreference={updatePreference} openDiscover={() => selectPage("discover")} />}
-        {activePage === "chat" && <ChatPage user={user} selected={selected} messages={messages} draft={messageDraft} setDraft={setMessageDraft} sendMessage={sendMessage} demoStoreReply={demoStoreReply} status={chatStatus} requestSignIn={() => { setAuthMode("login"); setAuthOpen(true); }} />}
+        {activePage === "chat" && <ChatPage user={user} selected={selected} messages={messages} draft={messageDraft} setDraft={setMessageDraft} sendMessage={sendMessage} status={chatStatus} requestSignIn={() => { setAuthMode("login"); setAuthOpen(true); }} />}
         {activePage === "owner" && <OwnerPage
           user={user} listingForm={listingForm} setListingForm={setListingForm} createListing={createListing}
           listingImage={listingImage} setListingImage={setListingImage} useCurrentLocation={useCurrentLocationForListing}
@@ -484,24 +538,51 @@ function App() {
           user={user} listingForm={listingForm} setListingForm={setListingForm} createListing={createListing}
           listingImage={listingImage} setListingImage={setListingImage} useCurrentLocation={useCurrentLocationForListing}
           listings={adminListings} updateListing={updateListing} uploadListingImage={uploadListingImage}
-          reviewListing={reviewListing} message={adminMessage} requestDemo={() => signInDemoAccount("admin")}
+          reviewListing={reviewListing} message={adminMessage} requestSignIn={() => { setAuthMode("login"); setAuthOpen(true); }}
         />}
+        </>}
       </main>
 
       {toast && <div className="toast" role="status">{toast}</div>}
-      {authOpen && <AuthDialog mode={authMode} setMode={setAuthMode} form={authForm} setForm={setAuthForm} submit={submitAuth} error={authError} close={() => setAuthOpen(false)} demo={signInDemoAccount} />}
+      {authOpen && <AuthDialog mode={authMode} setMode={setAuthMode} form={authForm} setForm={setAuthForm} submit={submitAuth} error={authError} close={closeAuthDialog} />}
     </div>
   );
 }
 
+function PasswordChangePage({ user, form, setForm, submit, error, logout }) {
+  const update = (field) => (event) => setForm((current) => ({ ...current, [field]: event.target.value }));
+  return <section className="password-change-page">
+    <div className="password-change-card">
+      <img className="auth-emblem" src={payNearEmblem} alt="" />
+      <span className="eyebrow">SECURE FIRST SIGN-IN</span>
+      <h1>Create your private password</h1>
+      <p>Hi {user.name.split(" ")[0]}. Your administrator account was issued with a one-time temporary password. Set a new password before opening the admin dashboard.</p>
+      <form onSubmit={submit}>
+        <label>New password<input required type="password" minLength="12" autoComplete="new-password" value={form.password} onChange={update("password")} /></label>
+        <small>Use at least 12 characters. Do not reuse the temporary password.</small>
+        <label>Confirm new password<input required type="password" minLength="12" autoComplete="new-password" value={form.confirmPassword} onChange={update("confirmPassword")} /></label>
+        {error && <p className="form-error">{error}</p>}
+        <button className="button primary full" type="submit">Set password and continue</button>
+      </form>
+      <button className="password-change-signout" type="button" onClick={logout}>Sign out and finish later</button>
+    </div>
+  </section>;
+}
+
 function DiscoverPage({ filters, setFilters, aiPrompt, setAiPrompt, applyAiSuggestion, aiMessage, aiProvider, establishments, selected, setSelected, loading, error, favoriteIds, toggleFavorite, openChat, userPosition, requestNearbyLocation, locationStatus }) {
   const clearFilters = () => setFilters(initialFilters);
+  const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   return <section className="discover-map-page map-mode">
     <NearbyMap establishments={establishments} setSelected={setSelected} userPosition={userPosition} radiusKm={filters.radiusKm} locationStatus={locationStatus} onOpenChat={openChat} fullScreen />
 
-    <aside className="map-control-panel" aria-label="Find nearby places">
+    <aside className={`map-control-panel ${mobilePanelOpen ? "mobile-expanded" : ""}`} aria-label="Find nearby places">
+      <button className="mobile-sheet-toggle" type="button" aria-expanded={mobilePanelOpen} onClick={() => setMobilePanelOpen((value) => !value)}>
+        <span className="mobile-sheet-grabber" aria-hidden="true" />
+        <span className="mobile-sheet-copy"><strong>{mobilePanelOpen ? "Search and filters" : "Find nearby"}</strong><small>{loading ? "Looking around..." : `${establishments.length} places around you`}</small></span>
+        <span className="mobile-sheet-chevron" aria-hidden="true">{mobilePanelOpen ? "↓" : "↑"}</span>
+      </button>
       <div className="map-panel-heading"><div><span className="eyebrow">PAYNEAR MARKETPLACE</span><h1>Find nearby</h1></div><button className="text-button" onClick={clearFilters}>Reset</button></div>
-      <label className="map-input-label">Search a place or category<input value={filters.query} onChange={(event) => setFilters((current) => ({ ...current, query: event.target.value }))} placeholder="e.g. cafe or pharmacy" /></label>
+      <label className="map-input-label">Search a place or category<input value={filters.query} onFocus={() => setMobilePanelOpen(true)} onChange={(event) => setFilters((current) => ({ ...current, query: event.target.value }))} placeholder="e.g. cafe or pharmacy" /></label>
       <div className="map-filter-group"><span>What are you looking for?</span><div className="chip-row">{CATEGORIES.map((category) => <button key={category} className={filters.query === category ? "chip selected" : "chip"} onClick={() => setFilters((current) => ({ ...current, query: category === "All" ? "" : category }))}>{category}</button>)}</div></div>
       <div className="map-payment-section"><div className="map-payment-heading"><div><span>Payment preference <em>Optional</em></span><p>Choose one only when it matters to you.</p></div></div><div className="payment-preference-carousel">{PAYMENT_FILTER_OPTIONS.map((option) => <PaymentPreference key={option.method || "all"} option={option} selected={filters.method === option.method} onSelect={() => setFilters((current) => ({ ...current, method: option.method }))} />)}</div></div>
       <label className="range-label map-range"><span>Search radius <strong>{filters.radiusKm} km</strong></span><input type="range" min="1" max="10" value={filters.radiusKm} onChange={(event) => setFilters((current) => ({ ...current, radiusKm: Number(event.target.value) }))} /></label>
@@ -511,7 +592,7 @@ function DiscoverPage({ filters, setFilters, aiPrompt, setAiPrompt, applyAiSugge
       {aiMessage && <div className="ai-result"><strong>{aiProvider}</strong><span>{aiMessage}</span></div>}
       {error && <div className="error-box">{error}</div>}
       <div className="map-panel-footer"><span>{loading ? "Looking around..." : `${establishments.length} places nearby`}</span></div>
-      <div className="map-sidebar-results"><div className="map-sidebar-results-heading"><span className="eyebrow">RESULTS</span><span>Select a place, then use Messages to contact its owner.</span></div><div className="map-sidebar-results-list">{!loading && establishments.map((place) => <PlaceCard key={place._id} place={place} selected={selected?._id === place._id} onClick={() => setSelected(place)} favorite={favoriteIds.includes(place._id)} toggleFavorite={toggleFavorite} />)}</div></div>
+      <div className="map-sidebar-results"><div className="map-sidebar-results-heading"><span className="eyebrow">RESULTS</span><span>Select a place to return to the map and inspect its location.</span></div><div className="map-sidebar-results-list">{!loading && establishments.map((place) => <PlaceCard key={place._id} place={place} selected={selected?._id === place._id} onClick={() => { setSelected(place); setMobilePanelOpen(false); }} favorite={favoriteIds.includes(place._id)} toggleFavorite={toggleFavorite} />)}</div></div>
     </aside>
   </section>;
 }
@@ -525,10 +606,10 @@ function SavedPage({ user, savedPlaces, selected, setSelected, toggleFavorite, u
   return <section className="saved-page"><div className="page-heading"><span className="eyebrow">YOUR LIST</span><h1>Saved places</h1><p>Your search can start with {user.preferredPaymentMethod} when you are ready.</p></div><div className="saved-layout"><div className="saved-list">{savedPlaces.length ? savedPlaces.map((place) => <PlaceCard key={place._id} place={place} selected={selected?._id === place._id} onClick={() => setSelected(place)} favorite toggleFavorite={toggleFavorite} />) : <div className="empty-state"><h2>Nothing saved yet.</h2><p>Keep useful stores here for a faster next search.</p><button className="button primary" onClick={openDiscover}>Discover places</button></div>}</div><div className="preference-card"><span className="eyebrow">PREFERENCE</span><h2>Payment method</h2><p>Set your default for a more relevant discovery screen.</p><select className="preference-select" value={user.preferredPaymentMethod} onChange={(event) => updatePreference(event.target.value)}>{METHODS.map((method) => <option key={method}>{method}</option>)}</select></div></div></section>;
 }
 
-function ChatPage({ user, selected, messages, draft, setDraft, sendMessage, demoStoreReply, status, requestSignIn }) {
+function ChatPage({ user, selected, messages, draft, setDraft, sendMessage, status, requestSignIn }) {
   if (!user) return <section className="simple-page"><span className="eyebrow">REAL-TIME CHAT</span><h1>Ask before you go.</h1><p>Sign in to use the protected Socket.IO chat channel with a selected establishment.</p><button className="button primary" onClick={requestSignIn}>Sign in to chat</button></section>;
   if (!selected) return <section className="simple-page"><h1>Choose an establishment first.</h1><p>Return to Discover, select a listing, then start a conversation.</p></section>;
-  return <section className="chat-page"><div className="chat-card"><div className="chat-header"><img src={selected.imageUrl} alt="" /><div><span className="eyebrow">LIVE CHAT WITH {selected.ownerName || selected.name}</span><h1>{selected.name}</h1><p>{selected.ownerName ? `${selected.ownerName} · ${selected.ownerTitle || "Listing contact"} — ${status}` : status}</p></div></div><div className="messages">{messages.length === 0 ? <div className="chat-empty">Start by asking whether GCash is accepted today.</div> : messages.map((message) => <div key={message._id} className={`message ${message.senderRole === "establishment" ? "from-store" : "from-user"}`}><span>{message.senderRole === "establishment" ? selected.ownerName || selected.name : "You"}</span><p>{message.body}</p><small>{formatTime(message.createdAt)}</small></div>)}</div><form className="message-form" onSubmit={sendMessage}><input value={draft} onChange={(event) => setDraft(event.target.value)} maxLength="500" placeholder="Type a message..." /><button className="button primary">Send</button></form>{user.role === "admin" && <div className="chat-demo"><span>For reviewer demo</span><button className="text-button" onClick={demoStoreReply}>Send sample store reply</button></div>}</div></section>;
+  return <section className="chat-page"><div className="chat-card"><div className="chat-header"><img src={selected.imageUrl} alt="" /><div><span className="eyebrow">LIVE CHAT WITH {selected.ownerName || selected.name}</span><h1>{selected.name}</h1><p>{selected.ownerName ? `${selected.ownerName} · ${selected.ownerTitle || "Listing contact"} — ${status}` : status}</p></div></div><div className="messages">{messages.length === 0 ? <div className="chat-empty">Start by asking whether GCash is accepted today.</div> : messages.map((message) => <div key={message._id} className={`message ${message.senderRole === "establishment" ? "from-store" : "from-user"}`}><span>{message.senderRole === "establishment" ? selected.ownerName || selected.name : "You"}</span><p>{message.body}</p><small>{formatTime(message.createdAt)}</small></div>)}</div><form className="message-form" onSubmit={sendMessage}><input value={draft} onChange={(event) => setDraft(event.target.value)} maxLength="500" placeholder="Type a message..." /><button className="button primary">Send</button></form></div></section>;
 }
 
 function StatusBadge({ status }) {
@@ -585,10 +666,10 @@ function OwnerPage({ user, listingForm, setListingForm, createListing, listingIm
   </section>;
 }
 
-function AdminPage({ user, listingForm, setListingForm, createListing, listingImage, setListingImage, useCurrentLocation, listings, updateListing, uploadListingImage, reviewListing, message, requestDemo }) {
+function AdminPage({ user, listingForm, setListingForm, createListing, listingImage, setListingImage, useCurrentLocation, listings, updateListing, uploadListingImage, reviewListing, message, requestSignIn }) {
   const [statusFilter, setStatusFilter] = useState("pending");
   const [notes, setNotes] = useState({});
-  if (user?.role !== "admin") return <section className="simple-page"><span className="eyebrow">ADMIN AREA</span><h1>Verified listings need an admin.</h1><p>Use the demo administrator account to review the protected verification workflow.</p><button className="button primary" onClick={requestDemo}>Use demo admin</button></section>;
+  if (user?.role !== "admin") return <section className="simple-page"><span className="eyebrow">ADMIN AREA</span><h1>Administrator access is required.</h1><p>Sign in with an administrator account provisioned by the PayNear team.</p><button className="button primary" onClick={requestSignIn}>Admin sign in</button></section>;
   const filteredListings = statusFilter === "all" ? listings : listings.filter((place) => place.verificationStatus === statusFilter);
   const pendingCount = listings.filter((place) => ["pending", "changes_requested"].includes(place.verificationStatus)).length;
   return <section className="admin-page moderation-page">
@@ -611,14 +692,14 @@ function AdminPage({ user, listingForm, setListingForm, createListing, listingIm
   </section>;
 }
 
-function AuthDialog({ mode, setMode, form, setForm, submit, error, close, demo }) {
+function AuthDialog({ mode, setMode, form, setForm, submit, error, close }) {
   const update = (field) => (event) => setForm((current) => ({ ...current, [field]: event.target.value }));
   return <div className="modal-backdrop" role="presentation">
     <section className="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="auth-title">
       <button className="modal-close" onClick={close} aria-label="Close">x</button>
       <img className="auth-emblem" src={payNearEmblem} alt="" />
       <h2 id="auth-title">{mode === "login" ? "Welcome back" : "Create your PayNear account"}</h2>
-      <p>{mode === "login" ? "Sign in with your PayNear account or choose a demo role below." : "Choose a personal or business account. Business owners can submit and manage their own store listings."}</p>
+      <p>{mode === "login" ? "Enter your PayNear email and password to continue." : "Choose a personal or business account. Business owners can submit and manage their own store listings."}</p>
       <form onSubmit={submit}>
         {mode === "register" && <>
           <label>Name<input required value={form.name} onChange={update("name")} /></label>
@@ -628,17 +709,12 @@ function AuthDialog({ mode, setMode, form, setForm, submit, error, close, demo }
             <label><input type="radio" name="role" value="owner" checked={form.role === "owner"} onChange={update("role")} /><span><strong>Business owner</strong><small>Submit and manage only your own store listings.</small></span></label>
           </fieldset>
         </>}
-        <label>Email<input type="email" required value={form.email} onChange={update("email")} /></label>
-        <label>Password<input type="password" minLength="6" required value={form.password} onChange={update("password")} /></label>
+        <label>Email<input type="email" required autoComplete="email" value={form.email} onChange={update("email")} /></label>
+        <label>Password<input type="password" minLength="8" required autoComplete={mode === "login" ? "current-password" : "new-password"} value={form.password} onChange={update("password")} /></label>
         {error && <p className="form-error">{error}</p>}
         <button className="button primary full" type="submit">{mode === "login" ? "Sign in" : "Create account"}</button>
       </form>
-      {mode === "login" && <div className="demo-accounts" aria-label="Demo role accounts">
-        <span>Quick demo access</span>
-        <button type="button" onClick={() => demo("user")}><strong>User</strong><small>user@paynear.demo · user123</small></button>
-        <button type="button" onClick={() => demo("owner")}><strong>Owner</strong><small>owner@paynear.demo · owner123</small></button>
-        <button type="button" onClick={() => demo("admin")}><strong>Admin</strong><small>admin@paynear.demo · admin123</small></button>
-      </div>}
+      {mode === "login" && <p className="admin-access-note">Administrator accounts are issued privately by the PayNear team and cannot be created here.</p>}
       <p className="auth-switch">{mode === "login" ? "New here?" : "Already have an account?"} <button onClick={() => setMode(mode === "login" ? "register" : "login")}>{mode === "login" ? "Register" : "Sign in"}</button></p>
     </section>
   </div>;
