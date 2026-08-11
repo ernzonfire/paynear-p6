@@ -29,12 +29,7 @@ import { suggestFilters } from "./services/aiService.js";
 
 dotenv.config();
 
-const JWT_SECRET = process.env.JWT_SECRET || "paynear-demo-secret-change-before-deployment";
-const DEMO_PASSWORDS = {
-  "user@paynear.demo": "user123",
-  "owner@paynear.demo": "owner123",
-  "admin@paynear.demo": "admin123",
-};
+const JWT_SECRET = process.env.JWT_SECRET || "paynear-development-secret-change-before-deployment";
 const ALLOWED_METHODS = ["GCash", "Maya", "QR Ph", "InstaPay", "BPI", "BDO", "UnionBank", "Card", "Cash", "Bank Transfer"];
 const ALLOWED_CATEGORIES = ["Cafe", "Restaurant", "Grocery", "Pharmacy", "Convenience Store"];
 
@@ -45,7 +40,7 @@ const upload = multer({
 });
 
 function tokenFor(user) {
-  return jwt.sign({ id: String(user._id), role: user.role, name: user.name }, JWT_SECRET, { expiresIn: "7d" });
+  return jwt.sign({ id: String(user._id), role: user.role, name: user.name, version: Number(user.sessionVersion || 0) }, JWT_SECRET, { expiresIn: "7d" });
 }
 
 function safeUser(user) {
@@ -108,11 +103,21 @@ export function createApp() {
       const payload = jwt.verify(token, JWT_SECRET);
       const user = await getUser(payload.id);
       if (!user) return response.status(401).json({ message: "Session is no longer valid." });
+      if (Number(payload.version || 0) !== Number(user.sessionVersion || 0)) {
+        return response.status(401).json({ message: "Session is no longer valid. Sign in again." });
+      }
       request.user = user;
       return next();
     } catch {
       return response.status(401).json({ message: "Session is invalid or expired." });
     }
+  };
+
+  const requirePasswordChanged = (request, response, next) => {
+    if (request.user?.mustChangePassword) {
+      return response.status(403).json({ message: "Set a new password before using your PayNear account.", code: "PASSWORD_CHANGE_REQUIRED" });
+    }
+    return next();
   };
 
   const requireOwner = (request, response, next) => {
@@ -129,15 +134,15 @@ export function createApp() {
     || (user?.role === "owner" && String(establishment.ownerUserId || "") === String(user._id));
 
   app.get("/api/health", (_request, response) => {
-    response.json({ status: "ok", mode: dbReady() ? "mongodb" : "demo", service: "paynear-api" });
+    response.json({ status: "ok", mode: dbReady() ? "mongodb" : "memory", service: "paynear-api" });
   });
 
   app.post("/api/auth/register", async (request, response, next) => {
     try {
       const { name, email, password } = request.body;
       const role = request.body.role === "owner" ? "owner" : "user";
-      if (!String(name || "").trim() || !String(email || "").includes("@") || String(password || "").length < 6) {
-        return response.status(400).json({ message: "Enter a name, a valid email, and a password with at least 6 characters." });
+      if (!String(name || "").trim() || !String(email || "").includes("@") || String(password || "").length < 8) {
+        return response.status(400).json({ message: "Enter a name, a valid email, and a password with at least 8 characters." });
       }
       if (await findUserByEmail(email)) return response.status(409).json({ message: "An account already uses that email." });
       const user = await createUser({ name: name.trim(), email: email.toLowerCase().trim(), passwordHash: await bcrypt.hash(password, 10), role });
@@ -152,8 +157,7 @@ export function createApp() {
       const { email, password } = request.body;
       const user = await findUserByEmail(String(email || "").toLowerCase().trim());
       if (!user) return response.status(401).json({ message: "Incorrect email or password." });
-      const isDemoAccount = !dbReady() && DEMO_PASSWORDS[user.email] === password;
-      const valid = isDemoAccount || (user.passwordHash && await bcrypt.compare(password || "", user.passwordHash));
+      const valid = user.passwordHash && await bcrypt.compare(password || "", user.passwordHash);
       if (!valid) return response.status(401).json({ message: "Incorrect email or password." });
       return response.json({ token: tokenFor(user), user: safeUser(user) });
     } catch (error) {
@@ -163,7 +167,31 @@ export function createApp() {
 
   app.get("/api/auth/me", requireAuth, (request, response) => response.json({ user: safeUser(request.user) }));
 
-  app.put("/api/account/preferences", requireAuth, async (request, response, next) => {
+  app.post("/api/auth/change-password", requireAuth, async (request, response, next) => {
+    try {
+      if (!request.user.mustChangePassword) {
+        return response.status(409).json({ message: "This account has already completed its required password change." });
+      }
+      const newPassword = String(request.body.newPassword || "");
+      const minimumLength = request.user.role === "admin" ? 12 : 8;
+      if (newPassword.length < minimumLength) {
+        return response.status(400).json({ message: `Use a new password with at least ${minimumLength} characters.` });
+      }
+      if (await bcrypt.compare(newPassword, request.user.passwordHash)) {
+        return response.status(400).json({ message: "Your new password must be different from the temporary password." });
+      }
+      const user = await updateUser(String(request.user._id), {
+        passwordHash: await bcrypt.hash(newPassword, 12),
+        mustChangePassword: false,
+        sessionVersion: Number(request.user.sessionVersion || 0) + 1,
+      });
+      return response.json({ token: tokenFor(user), user: safeUser(user) });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  app.put("/api/account/preferences", requireAuth, requirePasswordChanged, async (request, response, next) => {
     try {
       if (!ALLOWED_METHODS.includes(request.body.preferredPaymentMethod)) {
         return response.status(400).json({ message: "Choose a supported payment method." });
@@ -175,7 +203,7 @@ export function createApp() {
     }
   });
 
-  app.post("/api/account/favorites/:establishmentId", requireAuth, async (request, response, next) => {
+  app.post("/api/account/favorites/:establishmentId", requireAuth, requirePasswordChanged, async (request, response, next) => {
     try {
       const establishment = await getEstablishment(request.params.establishmentId);
       if (!isPublished(establishment)) return response.status(404).json({ message: "Establishment not found." });
@@ -200,7 +228,7 @@ export function createApp() {
         openNow: request.query.openNow === "true",
         minRating: Math.max(0, Number(request.query.minRating) || 0),
       });
-      return response.json({ establishments: establishments.map(publicEstablishment), mode: dbReady() ? "mongodb" : "demo" });
+      return response.json({ establishments: establishments.map(publicEstablishment), mode: dbReady() ? "mongodb" : "memory" });
     } catch (error) {
       return next(error);
     }
@@ -232,7 +260,7 @@ export function createApp() {
     }
   });
 
-  app.get("/api/owner/establishments", requireAuth, requireOwner, async (request, response, next) => {
+  app.get("/api/owner/establishments", requireAuth, requirePasswordChanged, requireOwner, async (request, response, next) => {
     try {
       return response.json({ establishments: await listOwnerEstablishments(String(request.user._id)) });
     } catch (error) {
@@ -240,7 +268,7 @@ export function createApp() {
     }
   });
 
-  app.get("/api/admin/establishments", requireAuth, requireAdmin, async (request, response, next) => {
+  app.get("/api/admin/establishments", requireAuth, requirePasswordChanged, requireAdmin, async (request, response, next) => {
     try {
       return response.json({ establishments: await listAdminEstablishments(String(request.query.status || "")) });
     } catch (error) {
@@ -248,7 +276,7 @@ export function createApp() {
     }
   });
 
-  app.post("/api/establishments", requireAuth, async (request, response, next) => {
+  app.post("/api/establishments", requireAuth, requirePasswordChanged, async (request, response, next) => {
     try {
       if (!["admin", "owner"].includes(request.user.role)) {
         return response.status(403).json({ message: "Business owner or administrator access is required." });
@@ -283,7 +311,7 @@ export function createApp() {
     }
   });
 
-  app.put("/api/establishments/:id", requireAuth, async (request, response, next) => {
+  app.put("/api/establishments/:id", requireAuth, requirePasswordChanged, async (request, response, next) => {
     try {
       const existing = await getEstablishment(request.params.id);
       if (!existing) return response.status(404).json({ message: "Establishment not found." });
@@ -329,7 +357,7 @@ export function createApp() {
     }
   });
 
-  app.post("/api/establishments/:id/image", requireAuth, upload.single("image"), async (request, response, next) => {
+  app.post("/api/establishments/:id/image", requireAuth, requirePasswordChanged, upload.single("image"), async (request, response, next) => {
     try {
       if (!request.file) return response.status(400).json({ message: "Upload a JPG, PNG, or WebP image under 3 MB." });
       const existing = await getEstablishment(request.params.id);
@@ -359,7 +387,7 @@ export function createApp() {
     }
   });
 
-  app.patch("/api/admin/establishments/:id/review", requireAuth, requireAdmin, async (request, response, next) => {
+  app.patch("/api/admin/establishments/:id/review", requireAuth, requirePasswordChanged, requireAdmin, async (request, response, next) => {
     try {
       const establishment = await getEstablishment(request.params.id);
       if (!establishment) return response.status(404).json({ message: "Establishment not found." });
@@ -413,7 +441,7 @@ export function createApp() {
     }
   });
 
-  app.get("/api/messages/:establishmentId", requireAuth, async (request, response, next) => {
+  app.get("/api/messages/:establishmentId", requireAuth, requirePasswordChanged, async (request, response, next) => {
     try {
       const establishment = await getEstablishment(request.params.establishmentId);
       if (!establishment || !canAccessEstablishment(request.user, establishment)) return response.status(404).json({ message: "Establishment not found." });
@@ -423,7 +451,7 @@ export function createApp() {
     }
   });
 
-  app.get("/api/notifications", requireAuth, async (request, response, next) => {
+  app.get("/api/notifications", requireAuth, requirePasswordChanged, async (request, response, next) => {
     try {
       return response.json({ notifications: await getNotifications(String(request.user._id)) });
     } catch (error) {
@@ -431,24 +459,7 @@ export function createApp() {
     }
   });
 
-  app.post("/api/notifications/gcash-demo", requireAuth, async (request, response, next) => {
-    try {
-      const establishment = await getEstablishment(request.body.establishmentId);
-      if (!isPublished(establishment)) return response.status(404).json({ message: "Establishment not found." });
-      const notification = await createNotification({
-        userId: String(request.user._id),
-        establishmentId: String(establishment._id),
-        type: "gcash",
-        title: "GCash availability update",
-        message: `${establishment.name} lists GCash as an accepted payment method. This is a directory notification, not a payment confirmation.`,
-      });
-      return response.status(201).json({ notification });
-    } catch (error) {
-      return next(error);
-    }
-  });
-
-  app.patch("/api/notifications/:id/read", requireAuth, async (request, response, next) => {
+  app.patch("/api/notifications/:id/read", requireAuth, requirePasswordChanged, async (request, response, next) => {
     try {
       const notification = await readNotification(request.params.id, String(request.user._id));
       if (!notification) return response.status(404).json({ message: "Notification not found." });
@@ -476,6 +487,8 @@ export function attachSocketServer(io, jwtSecret = JWT_SECRET) {
       const payload = jwt.verify(token, jwtSecret);
       const user = await getUser(payload.id);
       if (!user) return next(new Error("Session is invalid."));
+      if (Number(payload.version || 0) !== Number(user.sessionVersion || 0)) return next(new Error("Session is invalid."));
+      if (user.mustChangePassword) return next(new Error("Set a new password before using chat."));
       socket.user = user;
       return next();
     } catch {
@@ -509,25 +522,5 @@ export function attachSocketServer(io, jwtSecret = JWT_SECRET) {
       return callback({ ok: true, message });
     });
 
-    socket.on("demo-store-reply", async ({ establishmentId }, callback = () => {}) => {
-      const establishment = await getEstablishment(establishmentId);
-      if (!establishment) return callback({ ok: false, message: "Establishment not found." });
-      const message = await createMessage({
-        establishmentId: String(establishment._id),
-        senderName: establishment.ownerName || establishment.name,
-        senderRole: "establishment",
-        body: `Hi ${socket.user.name.split(" ")[0]}! Yes, we currently list GCash as accepted. Please confirm at the counter before payment.`,
-      });
-      const notification = await createNotification({
-        userId: String(socket.user._id),
-        establishmentId: String(establishment._id),
-        type: "chat",
-        title: `${establishment.ownerName || establishment.name} replied`,
-        message: "A new chat reply is available. This is not a payment confirmation.",
-      });
-      io.to(`establishment:${establishmentId}`).emit("message:new", message);
-      socket.emit("notification:new", notification);
-      return callback({ ok: true });
-    });
   });
 }

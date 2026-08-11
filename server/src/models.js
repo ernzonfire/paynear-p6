@@ -8,6 +8,8 @@ const userSchema = new Schema(
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     passwordHash: { type: String, required: true },
     role: { type: String, enum: ["user", "owner", "admin"], default: "user" },
+    mustChangePassword: { type: Boolean, default: false },
+    sessionVersion: { type: Number, min: 0, default: 0 },
     preferredPaymentMethod: { type: String, default: "GCash" },
     favoriteEstablishmentIds: [{ type: Schema.Types.ObjectId, ref: "Establishment" }],
   },

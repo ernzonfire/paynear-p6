@@ -63,7 +63,7 @@ const defaultEstablishments = [
     location: { type: "Point", coordinates: [121.0323, 14.6373] },
     ownerName: "Rafael Cruz",
     ownerTitle: "Restaurant owner",
-    ownerUserId: "demo-owner",
+    ownerUserId: null,
     acceptedPaymentMethods: ["Cash", "Card", "BDO"],
     verificationStatus: "pending",
     isActive: false,
@@ -212,11 +212,7 @@ const defaultEstablishments = [
 
 const memory = {
   establishments: structuredClone(defaultEstablishments),
-  users: [
-    { _id: "demo-user", name: "Mia Santos", email: "user@paynear.demo", role: "user", preferredPaymentMethod: "GCash", favoriteEstablishmentIds: ["demo-cafe-1"] },
-    { _id: "demo-owner", name: "Rafael Cruz", email: "owner@paynear.demo", role: "owner", preferredPaymentMethod: "Maya", favoriteEstablishmentIds: [] },
-    { _id: "demo-admin", name: "PayNear Admin", email: "admin@paynear.demo", role: "admin", preferredPaymentMethod: "GCash", favoriteEstablishmentIds: [] },
-  ],
+  users: [],
   messages: [],
   notifications: [],
 };
@@ -227,6 +223,7 @@ export const publicUser = (user) => ({
   name: user.name,
   email: user.email,
   role: user.role,
+  mustChangePassword: Boolean(user.mustChangePassword),
   preferredPaymentMethod: user.preferredPaymentMethod || "GCash",
   favoriteEstablishmentIds: (user.favoriteEstablishmentIds || []).map(String),
 });
@@ -386,7 +383,7 @@ export async function getUser(id) {
 
 export async function createUser(input) {
   if (dbReady()) return User.create(input);
-  const user = { _id: `demo-${randomUUID()}`, role: "user", favoriteEstablishmentIds: [], preferredPaymentMethod: "GCash", ...input };
+  const user = { _id: `memory-${randomUUID()}`, role: "user", mustChangePassword: false, sessionVersion: 0, favoriteEstablishmentIds: [], preferredPaymentMethod: "GCash", ...input };
   memory.users.push(user);
   return user;
 }
