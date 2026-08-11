@@ -1,5 +1,8 @@
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000/api";
-const REQUEST_TIMEOUT_MS = 15000;
+// Render may need a little longer to wake the API after an idle period.
+// Keep the request cancellable from the UI, but do not surface a false error
+// while the production service is still completing a healthy cold start.
+const REQUEST_TIMEOUT_MS = 45000;
 
 export const socketOrigin = API_URL.replace(/\/api\/?$/, "");
 
