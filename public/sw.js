@@ -1,12 +1,12 @@
-const CACHE_NAME = "paynear-shell-v1";
+const CACHE_NAME = "paynear-shell-v2";
 const APP_SHELL = [
   "/",
   "/manifest.webmanifest",
   "/favicon.svg",
-  "/icons/paynear-192.png",
-  "/icons/paynear-512.png",
-  "/icons/paynear-maskable-512.png",
-  "/icons/apple-touch-icon.png",
+  "/icons/paynear-app-192-v2.png",
+  "/icons/paynear-app-512-v2.png",
+  "/icons/paynear-app-maskable-512-v2.png",
+  "/icons/apple-touch-icon-v2.png",
 ];
 
 self.addEventListener("install", (event) => {
