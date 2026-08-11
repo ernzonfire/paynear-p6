@@ -15,7 +15,23 @@ const PAYMENT_FILTER_OPTIONS = [
 ];
 
 const initialFilters = { query: "", method: "", radiusKm: 5, openNow: false, minRating: 0, latitude: "", longitude: "" };
-const initialListing = { name: "", category: "Cafe", address: "", ownerName: "", ownerTitle: "Owner", acceptedPaymentMethods: ["GCash", "Cash"], openNow: true, verificationStatus: "pending" };
+const initialListing = {
+  name: "",
+  category: "Cafe",
+  address: "",
+  latitude: "",
+  longitude: "",
+  ownerName: "",
+  ownerTitle: "Owner",
+  acceptedPaymentMethods: ["GCash", "Cash"],
+  openNow: true,
+};
+
+const DEMO_ACCOUNTS = {
+  user: { email: "user@paynear.demo", password: "user123" },
+  owner: { email: "owner@paynear.demo", password: "owner123" },
+  admin: { email: "admin@paynear.demo", password: "admin123" },
+};
 
 const PAYMENT_BRANDS = {
   GCash: { mark: "G", className: "gcash", logoSrc: "https://commons.wikimedia.org/wiki/Special:FilePath/GCash_logo.svg" },
@@ -118,8 +134,10 @@ function App() {
   const [messageDraft, setMessageDraft] = useState("");
   const [chatStatus, setChatStatus] = useState("");
   const [listingForm, setListingForm] = useState(initialListing);
+  const [listingImage, setListingImage] = useState(null);
   const [adminMessage, setAdminMessage] = useState("");
   const [ownerListings, setOwnerListings] = useState([]);
+  const [adminListings, setAdminListings] = useState([]);
   const socketRef = useRef(null);
   const locationWatchRef = useRef(null);
 
@@ -153,6 +171,16 @@ function App() {
     }
   }, [token]);
 
+  const loadAdminListings = useCallback(async () => {
+    if (!token) return;
+    try {
+      const { establishments: listings } = await api.adminListings(token);
+      setAdminListings(listings);
+    } catch {
+      setAdminListings([]);
+    }
+  }, [token]);
+
   useEffect(() => { loadResults(); }, [loadResults]);
 
   useEffect(() => () => {
@@ -176,6 +204,11 @@ function App() {
     if (user?.role === "owner") loadOwnerListings();
     else setOwnerListings([]);
   }, [loadOwnerListings, user?.role]);
+
+  useEffect(() => {
+    if (user?.role === "admin") loadAdminListings();
+    else setAdminListings([]);
+  }, [loadAdminListings, user?.role]);
 
   useEffect(() => {
     if (activePage !== "chat" || !selected || !token || !user) return undefined;
@@ -217,6 +250,7 @@ function App() {
     setUser(null);
     setNotifications([]);
     setOwnerListings([]);
+    setAdminListings([]);
     setActivePage("discover");
     alert("You are signed out.");
   }
@@ -226,6 +260,7 @@ function App() {
     localStorage.setItem("paynear-user", JSON.stringify(result.user));
     setToken(result.token);
     setUser(result.user);
+    setActivePage(result.user.role === "admin" ? "admin" : result.user.role === "owner" ? "owner" : "discover");
     setAuthOpen(false);
     setAuthError("");
     alert(`Welcome, ${result.user.name.split(" ")[0]}.`);
@@ -242,9 +277,11 @@ function App() {
     }
   }
 
-  async function useDemoAdmin() {
+  async function signInDemoAccount(role = "admin") {
     try {
-      storeSession(await api.login({ email: "admin@paynear.demo", password: "admin123" }));
+      const account = DEMO_ACCOUNTS[role];
+      if (!account) throw new Error("Choose a valid demo account.");
+      storeSession(await api.login(account));
     } catch (requestError) { setAuthError(requestError.message); }
   }
 
@@ -334,13 +371,18 @@ function App() {
 
   async function createListing(event) {
     event.preventDefault();
+    const form = event.currentTarget;
     setAdminMessage("");
     try {
       const { establishment } = await api.createListing(listingForm, token);
-      setAdminMessage(`${establishment.name} added as a ${establishment.verificationStatus} listing.`);
+      if (listingImage) await api.uploadImage(establishment._id, listingImage, token);
+      setAdminMessage(`${establishment.name} was submitted for administrator review.`);
       setListingForm(initialListing);
+      setListingImage(null);
+      form.reset();
       await loadResults();
       if (user?.role === "owner") await loadOwnerListings();
+      if (user?.role === "admin") await loadAdminListings();
     } catch (requestError) { setAdminMessage(requestError.message); }
   }
 
@@ -349,6 +391,7 @@ function App() {
       await api.updateListing(id, updates, token);
       await loadResults();
       if (user?.role === "owner") await loadOwnerListings();
+      if (user?.role === "admin") await loadAdminListings();
       setAdminMessage("Listing updated.");
     } catch (requestError) { setAdminMessage(requestError.message); }
   }
@@ -359,8 +402,40 @@ function App() {
       await api.uploadImage(id, file, token);
       await loadResults();
       if (user?.role === "owner") await loadOwnerListings();
-      setAdminMessage("Image uploaded and linked to the listing.");
+      if (user?.role === "admin") await loadAdminListings();
+      setAdminMessage(user?.role === "owner" ? "Image uploaded. The listing returned to the review queue." : "Image uploaded and linked to the listing.");
     } catch (requestError) { setAdminMessage(requestError.message); }
+  }
+
+  async function reviewListing(id, action, reviewNotes = "") {
+    try {
+      const { establishment } = await api.reviewListing(id, { action, reviewNotes }, token);
+      await Promise.all([loadAdminListings(), loadResults()]);
+      setAdminMessage(action === "verify"
+        ? `${establishment.name} is verified and publicly visible.`
+        : `${establishment.name} was returned to the owner with review notes.`);
+    } catch (requestError) { setAdminMessage(requestError.message); }
+  }
+
+  function useCurrentLocationForListing() {
+    if (userPosition) {
+      setListingForm((current) => ({ ...current, ...userPosition }));
+      setAdminMessage("Current coordinates added. Confirm that you are at the store before submitting.");
+      return;
+    }
+    if (!navigator.geolocation) {
+      setAdminMessage("Location is not available in this browser. Enter the coordinates manually.");
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        const location = { latitude: Number(coords.latitude.toFixed(6)), longitude: Number(coords.longitude.toFixed(6)) };
+        setListingForm((current) => ({ ...current, ...location }));
+        setAdminMessage("Current coordinates added. Confirm that you are at the store before submitting.");
+      },
+      () => setAdminMessage("We could not read your location. Enter the coordinates manually."),
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 15000 },
+    );
   }
 
   function selectPage(page) {
@@ -400,12 +475,21 @@ function App() {
         />}
         {activePage === "saved" && <SavedPage user={user} savedPlaces={savedPlaces} selected={selected} setSelected={setSelected} toggleFavorite={toggleFavorite} updatePreference={updatePreference} openDiscover={() => selectPage("discover")} />}
         {activePage === "chat" && <ChatPage user={user} selected={selected} messages={messages} draft={messageDraft} setDraft={setMessageDraft} sendMessage={sendMessage} demoStoreReply={demoStoreReply} status={chatStatus} requestSignIn={() => { setAuthMode("login"); setAuthOpen(true); }} />}
-        {activePage === "owner" && <OwnerPage user={user} listingForm={listingForm} setListingForm={setListingForm} createListing={createListing} listings={ownerListings} updateListing={updateListing} uploadListingImage={uploadListingImage} message={adminMessage} />}
-        {activePage === "admin" && <AdminPage user={user} listingForm={listingForm} setListingForm={setListingForm} createListing={createListing} establishments={establishments} updateListing={updateListing} uploadListingImage={uploadListingImage} message={adminMessage} requestDemo={useDemoAdmin} />}
+        {activePage === "owner" && <OwnerPage
+          user={user} listingForm={listingForm} setListingForm={setListingForm} createListing={createListing}
+          listingImage={listingImage} setListingImage={setListingImage} useCurrentLocation={useCurrentLocationForListing}
+          listings={ownerListings} updateListing={updateListing} uploadListingImage={uploadListingImage} message={adminMessage}
+        />}
+        {activePage === "admin" && <AdminPage
+          user={user} listingForm={listingForm} setListingForm={setListingForm} createListing={createListing}
+          listingImage={listingImage} setListingImage={setListingImage} useCurrentLocation={useCurrentLocationForListing}
+          listings={adminListings} updateListing={updateListing} uploadListingImage={uploadListingImage}
+          reviewListing={reviewListing} message={adminMessage} requestDemo={() => signInDemoAccount("admin")}
+        />}
       </main>
 
       {toast && <div className="toast" role="status">{toast}</div>}
-      {authOpen && <AuthDialog mode={authMode} setMode={setAuthMode} form={authForm} setForm={setAuthForm} submit={submitAuth} error={authError} close={() => setAuthOpen(false)} demo={useDemoAdmin} />}
+      {authOpen && <AuthDialog mode={authMode} setMode={setAuthMode} form={authForm} setForm={setAuthForm} submit={submitAuth} error={authError} close={() => setAuthOpen(false)} demo={signInDemoAccount} />}
     </div>
   );
 }
@@ -447,21 +531,117 @@ function ChatPage({ user, selected, messages, draft, setDraft, sendMessage, demo
   return <section className="chat-page"><div className="chat-card"><div className="chat-header"><img src={selected.imageUrl} alt="" /><div><span className="eyebrow">LIVE CHAT WITH {selected.ownerName || selected.name}</span><h1>{selected.name}</h1><p>{selected.ownerName ? `${selected.ownerName} · ${selected.ownerTitle || "Listing contact"} — ${status}` : status}</p></div></div><div className="messages">{messages.length === 0 ? <div className="chat-empty">Start by asking whether GCash is accepted today.</div> : messages.map((message) => <div key={message._id} className={`message ${message.senderRole === "establishment" ? "from-store" : "from-user"}`}><span>{message.senderRole === "establishment" ? selected.ownerName || selected.name : "You"}</span><p>{message.body}</p><small>{formatTime(message.createdAt)}</small></div>)}</div><form className="message-form" onSubmit={sendMessage}><input value={draft} onChange={(event) => setDraft(event.target.value)} maxLength="500" placeholder="Type a message..." /><button className="button primary">Send</button></form>{user.role === "admin" && <div className="chat-demo"><span>For reviewer demo</span><button className="text-button" onClick={demoStoreReply}>Send sample store reply</button></div>}</div></section>;
 }
 
-function OwnerPage({ user, listingForm, setListingForm, createListing, listings, updateListing, uploadListingImage, message }) {
-  if (user?.role !== "owner") return <section className="simple-page"><span className="eyebrow">BUSINESS AREA</span><h1>Business owner access is required.</h1><p>Register as a business owner to submit and manage your own store listings.</p></section>;
-  const toggleMethod = (method) => setListingForm((current) => ({ ...current, acceptedPaymentMethods: current.acceptedPaymentMethods.includes(method) ? current.acceptedPaymentMethods.filter((item) => item !== method) : [...current.acceptedPaymentMethods, method] }));
-  return <section className="admin-page owner-page"><div className="page-heading"><span className="eyebrow">BUSINESS OWNER AREA</span><h1>Manage your store</h1><p>Submit your establishment for review, update opening status and payment methods, then upload a recognizable storefront image. Listings stay pending until an admin verifies them.</p></div><div className="admin-grid"><form className="listing-form" onSubmit={createListing}><h2>New store listing</h2><div className="owner-account-note"><strong>{user.name}</strong><span>Listed automatically as the business owner</span></div><label>Store name<input required value={listingForm.name} onChange={(event) => setListingForm((current) => ({ ...current, name: event.target.value }))} /></label><label>Category<select value={listingForm.category} onChange={(event) => setListingForm((current) => ({ ...current, category: event.target.value }))}>{CATEGORIES.slice(1).map((category) => <option key={category}>{category}</option>)}</select></label><label>Address<input required value={listingForm.address} onChange={(event) => setListingForm((current) => ({ ...current, address: event.target.value }))} placeholder="e.g. Maribago, Lapu-Lapu City" /></label><label className="switch"><input type="checkbox" checked={listingForm.openNow} onChange={(event) => setListingForm((current) => ({ ...current, openNow: event.target.checked }))} /><span>Open now</span></label><div className="choice-group"><span>Accepted payment methods</span><div className="chip-row">{METHODS.map((method) => <button type="button" key={method} className={listingForm.acceptedPaymentMethods.includes(method) ? "chip selected" : "chip"} onClick={() => toggleMethod(method)}>{method}</button>)}</div></div><button className="button primary" type="submit">Submit store for review</button>{message && <p className="form-message">{message}</p>}</form><div className="admin-list"><h2>My listings</h2>{listings.length === 0 ? <div className="empty-state"><h2>No store yet.</h2><p>Submit your first listing using the form.</p></div> : listings.map((place) => <article className="admin-row" key={place._id}><img src={place.imageUrl || payNearEmblem} alt="" /><div><strong>{place.name}</strong><span>{place.category} · {place.verificationStatus} · {place.openNow ? "Open now" : "Closed"}</span></div><div className="admin-row-actions"><button className="text-button" onClick={() => updateListing(place._id, { openNow: !place.openNow })}>{place.openNow ? "Mark closed" : "Mark open"}</button><label className="upload-label">Upload image<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => uploadListingImage(place._id, event.target.files?.[0])} /></label></div></article>)}</div></div></section>;
+function StatusBadge({ status }) {
+  return <span className={`status-badge status-${status}`}>{String(status || "pending").replace("_", " ")}</span>;
 }
 
-function AdminPage({ user, listingForm, setListingForm, createListing, establishments, updateListing, uploadListingImage, message, requestDemo }) {
-  if (user?.role !== "admin") return <section className="simple-page"><span className="eyebrow">ADMIN AREA</span><h1>Verified listings need an admin.</h1><p>Use the demo administrator account to review the protected create, verify, edit, deactivate, and upload flows.</p><button className="button primary" onClick={requestDemo}>Use demo admin</button></section>;
-  const toggleMethod = (method) => setListingForm((current) => ({ ...current, acceptedPaymentMethods: current.acceptedPaymentMethods.includes(method) ? current.acceptedPaymentMethods.filter((item) => item !== method) : [...current.acceptedPaymentMethods, method] }));
-  return <section className="admin-page"><div className="page-heading"><span className="eyebrow">PROTECTED ADMIN AREA</span><h1>Verify the directory</h1><p>Add establishments, assign a listing contact, manage status, and upload a recognizable store or landmark image.</p></div><div className="admin-grid"><form className="listing-form" onSubmit={createListing}><h2>New establishment</h2><label>Store name<input required value={listingForm.name} onChange={(event) => setListingForm((current) => ({ ...current, name: event.target.value }))} /></label><label>Category<select value={listingForm.category} onChange={(event) => setListingForm((current) => ({ ...current, category: event.target.value }))}>{CATEGORIES.slice(1).map((category) => <option key={category}>{category}</option>)}</select></label><label>Address<input required value={listingForm.address} onChange={(event) => setListingForm((current) => ({ ...current, address: event.target.value }))} /></label><label>Listing contact<input required value={listingForm.ownerName} onChange={(event) => setListingForm((current) => ({ ...current, ownerName: event.target.value }))} placeholder="e.g. Jamie Cruz" /></label><label>Contact role<input required value={listingForm.ownerTitle} onChange={(event) => setListingForm((current) => ({ ...current, ownerTitle: event.target.value }))} placeholder="e.g. Store owner" /></label><label className="switch"><input type="checkbox" checked={listingForm.openNow} onChange={(event) => setListingForm((current) => ({ ...current, openNow: event.target.checked }))} /><span>Open now</span></label><div className="choice-group"><span>Accepted payment methods</span><div className="chip-row">{METHODS.map((method) => <button type="button" key={method} className={listingForm.acceptedPaymentMethods.includes(method) ? "chip selected" : "chip"} onClick={() => toggleMethod(method)}>{method}</button>)}</div></div><button className="button primary" type="submit">Create pending listing</button>{message && <p className="form-message">{message}</p>}</form><div className="admin-list"><h2>Manage listings</h2>{establishments.map((place) => <article className="admin-row" key={place._id}><img src={place.imageUrl} alt="" /><div><strong>{place.name}</strong><span>{place.ownerName || "Listing contact"} · {place.category} - {place.verificationStatus}</span></div><div className="admin-row-actions"><button className="text-button" onClick={() => updateListing(place._id, { verificationStatus: place.verificationStatus === "verified" ? "pending" : "verified" })}>{place.verificationStatus === "verified" ? "Unverify" : "Verify"}</button><label className="upload-label">Upload image<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => uploadListingImage(place._id, event.target.files?.[0])} /></label><button className="text-button danger" onClick={() => updateListing(place._id, { isActive: !place.isActive })}>{place.isActive ? "Deactivate" : "Activate"}</button></div></article>)}</div></div></section>;
+function ListingFormFields({ listingForm, setListingForm, setListingImage, useCurrentLocation, showContact = false }) {
+  const toggleMethod = (method) => setListingForm((current) => ({
+    ...current,
+    acceptedPaymentMethods: current.acceptedPaymentMethods.includes(method)
+      ? current.acceptedPaymentMethods.filter((item) => item !== method)
+      : [...current.acceptedPaymentMethods, method],
+  }));
+  return <>
+    <label>Store name<input required value={listingForm.name} onChange={(event) => setListingForm((current) => ({ ...current, name: event.target.value }))} /></label>
+    <label>Category<select value={listingForm.category} onChange={(event) => setListingForm((current) => ({ ...current, category: event.target.value }))}>{CATEGORIES.slice(1).map((category) => <option key={category}>{category}</option>)}</select></label>
+    <label>Complete address<input required value={listingForm.address} onChange={(event) => setListingForm((current) => ({ ...current, address: event.target.value }))} placeholder="Street, barangay, city, province" /></label>
+    <div className="coordinate-grid">
+      <label>Latitude<input required type="number" step="any" min="-90" max="90" value={listingForm.latitude} onChange={(event) => setListingForm((current) => ({ ...current, latitude: event.target.value }))} placeholder="10.2935" /></label>
+      <label>Longitude<input required type="number" step="any" min="-180" max="180" value={listingForm.longitude} onChange={(event) => setListingForm((current) => ({ ...current, longitude: event.target.value }))} placeholder="124.0005" /></label>
+    </div>
+    <button className="location-button" type="button" onClick={useCurrentLocation}>Use my current coordinates</button>
+    {showContact && <>
+      <label>Listing contact<input required value={listingForm.ownerName} onChange={(event) => setListingForm((current) => ({ ...current, ownerName: event.target.value }))} placeholder="e.g. Jamie Cruz" /></label>
+      <label>Contact role<input required value={listingForm.ownerTitle} onChange={(event) => setListingForm((current) => ({ ...current, ownerTitle: event.target.value }))} placeholder="e.g. Store owner" /></label>
+    </>}
+    <label className="store-image-field">Storefront image<input required type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => setListingImage(event.target.files?.[0] || null)} /><small>JPG, PNG, or WebP; maximum 3 MB. Admins require an image before verification.</small></label>
+    <label className="switch"><input type="checkbox" checked={listingForm.openNow} onChange={(event) => setListingForm((current) => ({ ...current, openNow: event.target.checked }))} /><span>Open now</span></label>
+    <div className="choice-group"><span>Accepted payment methods</span><div className="chip-row">{METHODS.map((method) => <button type="button" key={method} className={listingForm.acceptedPaymentMethods.includes(method) ? "chip selected" : "chip"} onClick={() => toggleMethod(method)}>{method}</button>)}</div></div>
+  </>;
+}
+
+function OwnerPage({ user, listingForm, setListingForm, createListing, listingImage, setListingImage, useCurrentLocation, listings, updateListing, uploadListingImage, message }) {
+  if (user?.role !== "owner") return <section className="simple-page"><span className="eyebrow">BUSINESS AREA</span><h1>Business owner access is required.</h1><p>Register as a business owner to submit and manage your own store listings.</p></section>;
+  return <section className="admin-page owner-page">
+    <div className="page-heading"><span className="eyebrow">BUSINESS OWNER AREA</span><h1>Submit your store</h1><p>Provide complete store information and a recognizable image. Your listing stays private until a PayNear administrator verifies and publishes it.</p></div>
+    <div className="admin-grid">
+      <form className="listing-form" onSubmit={createListing}>
+        <h2>New store submission</h2>
+        <div className="owner-account-note"><strong>{user.name}</strong><span>Automatically recorded as the listing owner</span></div>
+        <ListingFormFields listingForm={listingForm} setListingForm={setListingForm} listingImage={listingImage} setListingImage={setListingImage} useCurrentLocation={useCurrentLocation} />
+        <button className="button primary" type="submit">Submit store for review</button>
+        {message && <p className="form-message">{message}</p>}
+      </form>
+      <div className="admin-list">
+        <div className="list-heading"><div><span className="eyebrow">SUBMISSIONS</span><h2>My listings</h2></div><span>{listings.length} total</span></div>
+        {listings.length === 0 ? <div className="empty-state"><h2>No store yet.</h2><p>Submit your first listing using the form.</p></div> : listings.map((place) => <article className="admin-row owner-listing-row" key={place._id}>
+          <img src={place.imageUrl || payNearEmblem} alt="" />
+          <div className="listing-summary"><div><strong>{place.name}</strong><StatusBadge status={place.verificationStatus} /></div><span>{place.category} · {place.address}</span><small>{place.isActive ? "Published publicly" : "Not visible to public users"}</small>{place.reviewNotes && <p className="review-note"><strong>Admin note:</strong> {place.reviewNotes}</p>}</div>
+          <div className="admin-row-actions"><button className="text-button" onClick={() => updateListing(place._id, { openNow: !place.openNow })}>{place.openNow ? "Mark closed" : "Mark open"}</button><label className="upload-label">Replace image<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => uploadListingImage(place._id, event.target.files?.[0])} /></label></div>
+        </article>)}
+      </div>
+    </div>
+  </section>;
+}
+
+function AdminPage({ user, listingForm, setListingForm, createListing, listingImage, setListingImage, useCurrentLocation, listings, updateListing, uploadListingImage, reviewListing, message, requestDemo }) {
+  const [statusFilter, setStatusFilter] = useState("pending");
+  const [notes, setNotes] = useState({});
+  if (user?.role !== "admin") return <section className="simple-page"><span className="eyebrow">ADMIN AREA</span><h1>Verified listings need an admin.</h1><p>Use the demo administrator account to review the protected verification workflow.</p><button className="button primary" onClick={requestDemo}>Use demo admin</button></section>;
+  const filteredListings = statusFilter === "all" ? listings : listings.filter((place) => place.verificationStatus === statusFilter);
+  const pendingCount = listings.filter((place) => ["pending", "changes_requested"].includes(place.verificationStatus)).length;
+  return <section className="admin-page moderation-page">
+    <div className="page-heading"><span className="eyebrow">PROTECTED ADMIN AREA</span><h1>Review store submissions</h1><p>Only listings verified here become visible in public PayNear search and map results.</p></div>
+    <div className="moderation-stats"><div><strong>{pendingCount}</strong><span>Needs review</span></div><div><strong>{listings.filter((place) => place.verificationStatus === "verified").length}</strong><span>Verified</span></div><div><strong>{listings.filter((place) => place.verificationStatus === "rejected").length}</strong><span>Rejected</span></div></div>
+    {message && <p className="form-message moderation-message">{message}</p>}
+    <div className="moderation-toolbar" role="group" aria-label="Filter submissions">{["pending", "changes_requested", "verified", "rejected", "all"].map((status) => <button key={status} className={statusFilter === status ? "active" : ""} onClick={() => setStatusFilter(status)}>{status.replace("_", " ")}</button>)}</div>
+    <div className="review-list">
+      {filteredListings.length === 0 ? <div className="empty-state"><h2>No listings in this queue.</h2><p>Choose another status to inspect the directory.</p></div> : filteredListings.map((place) => <article className="review-card" key={place._id}>
+        <img src={place.imageUrl || payNearEmblem} alt={`${place.name} storefront`} />
+        <div className="review-card-body">
+          <div className="review-card-heading"><div><StatusBadge status={place.verificationStatus} /><h2>{place.name}</h2><p>{place.ownerName || "Unassigned owner"} · {place.ownerTitle || "Listing contact"}</p></div><span>{place.category}</span></div>
+          <dl><div><dt>Address</dt><dd>{place.address}</dd></div><div><dt>Coordinates</dt><dd>{place.location?.coordinates?.slice().reverse().join(", ") || "Missing"}</dd></div><div><dt>Payments</dt><dd>{place.acceptedPaymentMethods.join(", ")}</dd></div></dl>
+          <label className="review-notes">Review notes<textarea maxLength="500" value={notes[place._id] ?? place.reviewNotes ?? ""} onChange={(event) => setNotes((current) => ({ ...current, [place._id]: event.target.value }))} placeholder="Required when rejecting or requesting changes" /></label>
+          <div className="review-actions"><button className="button primary" disabled={!place.imageUrl} onClick={() => reviewListing(place._id, "verify", notes[place._id] || "")}>Verify & publish</button><button className="button outline" onClick={() => reviewListing(place._id, "request_changes", notes[place._id] || "")}>Request changes</button><button className="text-button danger" onClick={() => reviewListing(place._id, "reject", notes[place._id] || "")}>Reject</button><label className="upload-label">Replace image<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => uploadListingImage(place._id, event.target.files?.[0])} /></label>{place.verificationStatus === "verified" && <button className="text-button" onClick={() => updateListing(place._id, { isActive: !place.isActive })}>{place.isActive ? "Unpublish" : "Republish"}</button>}</div>
+        </div>
+      </article>)}
+    </div>
+    <details className="manual-listing-panel"><summary>Add a listing manually</summary><form className="listing-form" onSubmit={createListing}><h2>Administrator-created listing</h2><ListingFormFields listingForm={listingForm} setListingForm={setListingForm} listingImage={listingImage} setListingImage={setListingImage} useCurrentLocation={useCurrentLocation} showContact /><button className="button primary" type="submit">Create pending listing</button></form></details>
+  </section>;
 }
 
 function AuthDialog({ mode, setMode, form, setForm, submit, error, close, demo }) {
   const update = (field) => (event) => setForm((current) => ({ ...current, [field]: event.target.value }));
-  return <div className="modal-backdrop" role="presentation"><section className="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="auth-title"><button className="modal-close" onClick={close} aria-label="Close">x</button><img className="auth-emblem" src={payNearEmblem} alt="" /><h2 id="auth-title">{mode === "login" ? "Welcome back" : "Create your PayNear account"}</h2><p>{mode === "login" ? "Sign in for saved places, updates, and live chat." : "Choose a personal or business account. Business owners can submit and manage their own store listings."}</p><form onSubmit={submit}>{mode === "register" && <><label>Name<input required value={form.name} onChange={update("name")} /></label><fieldset className="role-choice"><legend>Account type</legend><label><input type="radio" name="role" value="user" checked={form.role === "user"} onChange={update("role")} /><span><strong>User</strong><small>Search, save places, and chat with stores.</small></span></label><label><input type="radio" name="role" value="owner" checked={form.role === "owner"} onChange={update("role")} /><span><strong>Business owner</strong><small>Submit and manage only your own store listings.</small></span></label></fieldset></>}<label>Email<input type="email" required value={form.email} onChange={update("email")} /></label><label>Password<input type="password" minLength="6" required value={form.password} onChange={update("password")} /></label>{error && <p className="form-error">{error}</p>}<button className="button primary full" type="submit">{mode === "login" ? "Sign in" : "Create account"}</button></form><button className="demo-button" onClick={demo}>Use demo admin account</button><p className="auth-switch">{mode === "login" ? "New here?" : "Already have an account?"} <button onClick={() => setMode(mode === "login" ? "register" : "login")}>{mode === "login" ? "Register" : "Sign in"}</button></p></section></div>;
+  return <div className="modal-backdrop" role="presentation">
+    <section className="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="auth-title">
+      <button className="modal-close" onClick={close} aria-label="Close">x</button>
+      <img className="auth-emblem" src={payNearEmblem} alt="" />
+      <h2 id="auth-title">{mode === "login" ? "Welcome back" : "Create your PayNear account"}</h2>
+      <p>{mode === "login" ? "Sign in with your PayNear account or choose a demo role below." : "Choose a personal or business account. Business owners can submit and manage their own store listings."}</p>
+      <form onSubmit={submit}>
+        {mode === "register" && <>
+          <label>Name<input required value={form.name} onChange={update("name")} /></label>
+          <fieldset className="role-choice">
+            <legend>Account type</legend>
+            <label><input type="radio" name="role" value="user" checked={form.role === "user"} onChange={update("role")} /><span><strong>User</strong><small>Search, save places, and chat with stores.</small></span></label>
+            <label><input type="radio" name="role" value="owner" checked={form.role === "owner"} onChange={update("role")} /><span><strong>Business owner</strong><small>Submit and manage only your own store listings.</small></span></label>
+          </fieldset>
+        </>}
+        <label>Email<input type="email" required value={form.email} onChange={update("email")} /></label>
+        <label>Password<input type="password" minLength="6" required value={form.password} onChange={update("password")} /></label>
+        {error && <p className="form-error">{error}</p>}
+        <button className="button primary full" type="submit">{mode === "login" ? "Sign in" : "Create account"}</button>
+      </form>
+      {mode === "login" && <div className="demo-accounts" aria-label="Demo role accounts">
+        <span>Quick demo access</span>
+        <button type="button" onClick={() => demo("user")}><strong>User</strong><small>user@paynear.demo · user123</small></button>
+        <button type="button" onClick={() => demo("owner")}><strong>Owner</strong><small>owner@paynear.demo · owner123</small></button>
+        <button type="button" onClick={() => demo("admin")}><strong>Admin</strong><small>admin@paynear.demo · admin123</small></button>
+      </div>}
+      <p className="auth-switch">{mode === "login" ? "New here?" : "Already have an account?"} <button onClick={() => setMode(mode === "login" ? "register" : "login")}>{mode === "login" ? "Register" : "Sign in"}</button></p>
+    </section>
+  </div>;
 }
 
 export default App;

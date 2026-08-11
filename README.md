@@ -4,15 +4,20 @@ PayNear helps people find nearby establishments based on accepted payment method
 
 The repository is deliberately separate from the P4 KusinaMate project.
 
+The current approved scope is documented in [`output/pdf/PayNear_Project_Proposal_Revised_Owner_Workflow.pdf`](output/pdf/PayNear_Project_Proposal_Revised_Owner_Workflow.pdf). Regenerate it after proposal edits with `python3 scripts/generate_revised_proposal.py`.
+
 ## What is included
 
 - Facebook Marketplace-style nearby discovery: list or map view, payment-branded pins, a browser-location radius circle, plus place/category, distance, open-now, and rating filters.
 - Recognizable e-wallet and bank identifiers for GCash, Maya, BPI, BDO, UnionBank, cards, cash, and bank transfers; GCash notifications remain **demo-only** directory updates.
 - JWT registration and sign-in, saved places, and preferred payment method.
 - Socket.IO real-time Messenger-style establishment chat.
-- Admin-only establishment creation, verification, deactivation, and JPG/PNG/WebP image upload.
+- Business-owner registration and private store submission with address, map coordinates, payment methods, and a JPG/PNG/WebP storefront image.
+- A protected administrator review queue for verifying, rejecting, requesting changes, publishing, and deactivating listings.
 - AI Place Assistant that turns a natural-language request into reviewable search filters. It has a safe local fallback and can call OpenAI when configured.
-- Express/Mongoose models for users, establishments, chat messages, and notifications. The API runs in usable in-memory demo mode until MongoDB is connected.
+- Express/Mongoose models for users, establishments, moderation audit fields, persistent store images, chat messages, and notifications. The API runs in usable in-memory demo mode until MongoDB is connected.
+
+Only establishments with both `verificationStatus: "verified"` and `isActive: true` are returned by the public API. Owner submissions and owner edits to verified business details return the listing to the private administrator review queue.
 
 ## Quick start
 
@@ -28,18 +33,19 @@ npm run dev:full
 
 Open [http://localhost:5173](http://localhost:5173). The API is at `http://localhost:4000/api`.
 
-Use the **Use demo admin account** button to sign in as:
+The sign-in dialog includes one-click access for all three demo roles:
 
-```text
-email: admin@paynear.demo
-password: admin123
-```
+| Role | Email | Password | Landing area |
+| --- | --- | --- | --- |
+| User | `user@paynear.demo` | `user123` | Public discovery |
+| Owner | `owner@paynear.demo` | `owner123` | My business |
+| Admin | `admin@paynear.demo` | `admin123` | Moderation dashboard |
 
-This account exists only in the local demo store. Change or remove it before deployment.
+These accounts exist only while the API is using its in-memory demo store. They are never accepted after MongoDB connects. In production, users and owners create real accounts through registration. Set `ADMIN_EMAIL` and an `ADMIN_PASSWORD` of at least 12 characters; the server securely seeds that administrator only when the email does not already exist.
 
 ## Database and AI setup
 
-The backend starts in `demo` mode with sample Metro Manila locations and mock listing contacts when `MONGODB_URI` is blank. Add a MongoDB connection string in `server/.env` for persistent data. The Mongoose schemas include a GeoJSON location field and 2dsphere index for production geospatial queries.
+The backend starts in `demo` mode with sample Philippine locations and mock listing contacts when `MONGODB_URI` is blank. Add a MongoDB connection string in `server/.env` for persistent accounts, submissions, review history, messages, notifications, and uploaded store images. The Mongoose schemas include a GeoJSON location field and 2dsphere index for production geospatial queries.
 
 To enable the external AI provider, set both values in `server/.env`:
 
@@ -71,8 +77,11 @@ npm run test        # lint + Node API unit tests
 | GET | `/api/health` | API health and active data mode |
 | POST | `/api/auth/register`, `/api/auth/login` | Account access |
 | GET | `/api/establishments` | Advanced discovery filters |
-| POST/PUT | `/api/establishments` | Admin listing management |
-| POST | `/api/establishments/:id/image` | Admin image upload |
+| POST/PUT | `/api/establishments` | Owner/admin listing submission and permitted updates |
+| POST | `/api/establishments/:id/image` | Owner/admin image upload |
+| GET | `/api/owner/establishments` | Owner's private submissions |
+| GET | `/api/admin/establishments` | Protected administrator review queue |
+| PATCH | `/api/admin/establishments/:id/review` | Verify, reject, or request changes |
 | POST | `/api/ai/suggest` | AI-assisted filter suggestion |
 | GET | `/api/messages/:establishmentId` | Protected chat history |
 | GET/PATCH | `/api/notifications` | In-app notices and read state |
@@ -84,5 +93,5 @@ Project board: [PayNear workflow](https://trello.com/b/6a34f3da0f1db896cc034cdd)
 ## Suggested deployment
 
 - Frontend: Vercel or Netlify, with `VITE_API_URL` set to the public API URL.
-- Backend: Render, Railway, or a Node-capable host, with `CLIENT_URL`, `JWT_SECRET`, `MONGODB_URI`, and optional AI variables set there.
+- Backend: Render, Railway, or a Node-capable host, with `CLIENT_URL`, `PUBLIC_API_URL`, `JWT_SECRET`, `MONGODB_URI`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, and optional AI variables set there.
 - MongoDB: MongoDB Atlas, with the database network access configured for the backend host.
