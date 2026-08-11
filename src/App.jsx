@@ -64,6 +64,12 @@ function storeMapIcon(place) {
 }
 
 const userMapIcon = L.divIcon({ className: "paynear-marker user-marker", html: "<span></span>", iconSize: [20, 20], iconAnchor: [10, 10] });
+const listingMapIcon = L.divIcon({ className: "listing-pin-marker", html: "<span></span>", iconSize: [30, 38], iconAnchor: [15, 36] });
+
+function handleStoreImageError(event) {
+  event.currentTarget.onerror = null;
+  event.currentTarget.src = payNearEmblem;
+}
 
 function formatTime(value) {
   if (!value) return "Just now";
@@ -110,6 +116,55 @@ function MapViewport({ latitude, longitude, radiusKm, liveLocation, followUserRe
   return null;
 }
 
+function ListingPinEvents({ onChange }) {
+  useMapEvents({
+    click: ({ latlng }) => onChange(latlng.lat, latlng.lng),
+  });
+  return null;
+}
+
+function ListingPinViewport({ latitude, longitude, hasPosition }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (hasPosition) map.setView([latitude, longitude], Math.max(map.getZoom(), 17), { animate: false });
+  }, [hasPosition, latitude, longitude, map]);
+  return null;
+}
+
+function ListingLocationPicker({ latitude, longitude, onChange }) {
+  const numericLatitude = Number(latitude);
+  const numericLongitude = Number(longitude);
+  const hasPosition = latitude !== "" && longitude !== "" && Number.isFinite(numericLatitude) && Number.isFinite(numericLongitude);
+  const position = hasPosition ? [numericLatitude, numericLongitude] : [10.3157, 123.8854];
+
+  const updatePosition = (nextLatitude, nextLongitude) => onChange({
+    latitude: Number(nextLatitude.toFixed(6)),
+    longitude: Number(nextLongitude.toFixed(6)),
+  });
+
+  return <div className="listing-location-picker">
+    <div className="listing-location-heading"><strong>Pin the exact storefront</strong><span>Tap the map or drag the pin. The coordinates above update automatically.</span></div>
+    <MapContainer center={position} zoom={hasPosition ? 17 : 12} scrollWheelZoom className="listing-location-map">
+      <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>' url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" />
+      <ListingPinEvents onChange={updatePosition} />
+      <ListingPinViewport latitude={numericLatitude} longitude={numericLongitude} hasPosition={hasPosition} />
+      {hasPosition && <Marker
+        position={position}
+        icon={listingMapIcon}
+        title="Exact storefront pin"
+        alt="Exact storefront pin"
+        draggable
+        eventHandlers={{ dragend: (event) => {
+          const point = event.target.getLatLng();
+          updatePosition(point.lat, point.lng);
+        } }}
+      ><Popup>Exact storefront location</Popup></Marker>}
+    </MapContainer>
+    <small>{hasPosition ? `Pinned at ${numericLatitude.toFixed(6)}, ${numericLongitude.toFixed(6)}` : "No pin yet. Use your current location or tap the map."}</small>
+  </div>;
+}
+
 function NearbyMap({ establishments, setSelected, userPosition, radiusKm, locationStatus, onOpenChat, fullScreen = false }) {
   const fallbackCenter = [14.64, 121.049];
   const center = userPosition ? [userPosition.latitude, userPosition.longitude] : fallbackCenter;
@@ -135,10 +190,10 @@ function NearbyMap({ establishments, setSelected, userPosition, radiusKm, locati
         liveLocation={Boolean(userPosition)}
         followUserRef={followUserRef}
       />
-      {userPosition && <><Marker position={center} icon={userMapIcon}><Popup>You are here</Popup></Marker><Circle center={center} radius={radiusKm * 1000} pathOptions={{ color: "#007c78", fillColor: "#8bdbd3", fillOpacity: .2, weight: 3, opacity: .95 }}><Tooltip className="radius-tooltip" permanent direction="top" offset={[0, -16]} opacity={1}>{radiusKm} km search area</Tooltip></Circle></>}
+      {userPosition && <><Marker position={center} icon={userMapIcon} title="Your live location" alt="Your live location"><Popup>You are here</Popup></Marker><Circle center={center} radius={radiusKm * 1000} pathOptions={{ color: "#007c78", fillColor: "#8bdbd3", fillOpacity: .2, weight: 3, opacity: .95 }}><Tooltip className="radius-tooltip" permanent direction="top" offset={[0, -16]} opacity={1}>{radiusKm} km search area</Tooltip></Circle></>}
       {establishments.filter((place) => place.location?.coordinates?.length === 2).map((place) => {
         const [longitude, latitude] = place.location.coordinates;
-        return <Marker key={place._id} position={[latitude, longitude]} icon={storeMapIcon(place)} eventHandlers={{ click: () => setSelected(place) }}><Popup><div className="map-popup"><div className="map-popup-hero"><img src={place.imageUrl} alt={`${place.name} storefront`} /><div><strong>{place.name}</strong><span>{place.distanceKm} km - {place.category}</span><small>{place.ownerName || "Listing contact"}</small></div></div><div className="map-popup-payments">{place.acceptedPaymentMethods.slice(0, 3).map((method) => <PaymentLogo key={method} method={method} compact />)}</div><button onClick={() => { setSelected(place); onOpenChat(); }}>Message {(place.ownerName || place.name).split(" ")[0]}</button></div></Popup></Marker>;
+        return <Marker key={place._id} position={[latitude, longitude]} icon={storeMapIcon(place)} title={`${place.name}, ${place.distanceKm} kilometers away`} alt={`${place.name} map pin`} eventHandlers={{ click: () => setSelected(place) }}><Popup><div className="map-popup"><div className="map-popup-hero"><img src={place.imageUrl || payNearEmblem} onError={handleStoreImageError} alt={`${place.name} storefront`} /><div><strong>{place.name}</strong><span>{place.distanceKm} km - {place.category}</span><small>{place.ownerName || "Listing contact"}</small></div></div><div className="map-popup-payments">{place.acceptedPaymentMethods.slice(0, 3).map((method) => <PaymentLogo key={method} method={method} compact />)}</div><button onClick={() => { setSelected(place); onOpenChat(); }}>Message {(place.ownerName || place.name).split(" ")[0]}</button></div></Popup></Marker>;
       })}
     </MapContainer>
     {userPosition && <button className="map-recenter-button" type="button" aria-label="Center map on my live location" title="Center on my location" onClick={recenterOnUser}>
@@ -161,15 +216,16 @@ function App() {
   const [userPosition, setUserPosition] = useState(null);
   const [locationStatus, setLocationStatus] = useState("");
   const [token, setToken] = useState(() => localStorage.getItem("paynear-token") || "");
-  const [user, setUser] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("paynear-user") || "null"); } catch { return null; }
-  });
+  const [user, setUser] = useState(null);
+  const [sessionChecking, setSessionChecking] = useState(() => Boolean(localStorage.getItem("paynear-token")));
   const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState("login");
   const [authForm, setAuthForm] = useState({ name: "", email: "", password: "", role: "user" });
   const [authError, setAuthError] = useState("");
+  const [authSubmitting, setAuthSubmitting] = useState(false);
   const [passwordForm, setPasswordForm] = useState({ password: "", confirmPassword: "" });
   const [passwordError, setPasswordError] = useState("");
+  const [passwordSubmitting, setPasswordSubmitting] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
@@ -180,12 +236,15 @@ function App() {
   const [listingForm, setListingForm] = useState(initialListing);
   const [listingImage, setListingImage] = useState(null);
   const [adminMessage, setAdminMessage] = useState("");
+  const [listingSubmitting, setListingSubmitting] = useState(false);
+  const [listingActionBusy, setListingActionBusy] = useState("");
   const [ownerListings, setOwnerListings] = useState([]);
   const [adminListings, setAdminListings] = useState([]);
   const socketRef = useRef(null);
   const locationWatchRef = useRef(null);
   const lastAcceptedLocationRef = useRef(null);
   const profileMenuRef = useRef(null);
+  const resultsRequestRef = useRef({ controller: null, id: 0 });
 
   const alert = useCallback((message) => {
     setToast(message);
@@ -193,17 +252,23 @@ function App() {
   }, []);
 
   const loadResults = useCallback(async () => {
+    resultsRequestRef.current.controller?.abort();
+    const controller = new AbortController();
+    const requestId = resultsRequestRef.current.id + 1;
+    resultsRequestRef.current = { controller, id: requestId };
     setLoading(true);
     setError("");
     try {
-      const { establishments: results } = await api.listEstablishments(filters);
+      const { establishments: results } = await api.listEstablishments(filters, { signal: controller.signal });
+      if (resultsRequestRef.current.id !== requestId) return;
       setEstablishments(results);
       setSelected((current) => results.find((item) => item._id === current?._id) || results[0] || null);
-    } catch {
-      setError("The API is not available yet. Start the client and server together with npm run dev:full.");
+    } catch (requestError) {
+      if (requestError.name === "AbortError" || resultsRequestRef.current.id !== requestId) return;
+      setError(requestError.message || "We could not load verified places. Please try again.");
       setEstablishments([]);
     } finally {
-      setLoading(false);
+      if (resultsRequestRef.current.id === requestId) setLoading(false);
     }
   }, [filters]);
 
@@ -227,21 +292,31 @@ function App() {
     }
   }, [token]);
 
-  useEffect(() => { loadResults(); }, [loadResults]);
+  useEffect(() => {
+    const delay = filters.query.trim() ? 250 : 0;
+    const timer = window.setTimeout(loadResults, delay);
+    return () => window.clearTimeout(timer);
+  }, [filters.query, loadResults]);
+
+  useEffect(() => () => resultsRequestRef.current.controller?.abort(), []);
 
   useEffect(() => () => {
     if (locationWatchRef.current !== null) navigator.geolocation?.clearWatch(locationWatchRef.current);
   }, []);
 
   useEffect(() => {
-    if (!token) return;
+    if (!token) { setSessionChecking(false); return undefined; }
+    let mounted = true;
+    setSessionChecking(true);
     api.me(token)
       .then(({ user: currentUser }) => {
+        if (!mounted) return;
         setUser(currentUser);
-        localStorage.setItem("paynear-user", JSON.stringify(currentUser));
         if (currentUser.mustChangePassword) setActivePage("change-password");
       })
-      .catch(() => logout());
+      .catch(() => mounted && logout("Your previous session expired. Please sign in again."))
+      .finally(() => mounted && setSessionChecking(false));
+    return () => { mounted = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
@@ -309,11 +384,13 @@ function App() {
   const favoriteIds = user?.favoriteEstablishmentIds || [];
   const savedPlaces = establishments.filter((item) => favoriteIds.includes(item._id));
 
-  function logout() {
+  function logout(message = "You are signed out.") {
+    const notice = typeof message === "string" ? message : "You are signed out.";
     localStorage.removeItem("paynear-token");
     localStorage.removeItem("paynear-user");
     setToken("");
     setUser(null);
+    setSessionChecking(false);
     setNotifications([]);
     setOwnerListings([]);
     setAdminListings([]);
@@ -322,14 +399,15 @@ function App() {
     setShowNotifications(false);
     setShowProfile(false);
     setActivePage("discover");
-    alert("You are signed out.");
+    alert(notice);
   }
 
   function storeSession(result) {
     localStorage.setItem("paynear-token", result.token);
-    localStorage.setItem("paynear-user", JSON.stringify(result.user));
+    localStorage.removeItem("paynear-user");
     setToken(result.token);
     setUser(result.user);
+    setSessionChecking(false);
     setActivePage(result.user.mustChangePassword ? "change-password" : result.user.role === "admin" ? "admin" : result.user.role === "owner" ? "owner" : "discover");
     setAuthOpen(false);
     setAuthError("");
@@ -337,25 +415,30 @@ function App() {
     alert(result.user.mustChangePassword ? "Set your new password to finish signing in." : `Welcome, ${result.user.name.split(" ")[0]}.`);
   }
 
-  function closeAuthDialog() {
+  const closeAuthDialog = useCallback(() => {
     setAuthOpen(false);
     setAuthError("");
     setAuthForm((current) => ({ ...current, password: "" }));
-  }
+  }, []);
 
   async function submitAuth(event) {
     event.preventDefault();
+    if (authSubmitting) return;
     setAuthError("");
+    setAuthSubmitting(true);
     try {
       const result = authMode === "register" ? await api.register(authForm) : await api.login(authForm);
       storeSession(result);
     } catch (requestError) {
       setAuthError(requestError.message);
+    } finally {
+      setAuthSubmitting(false);
     }
   }
 
   async function submitPasswordChange(event) {
     event.preventDefault();
+    if (passwordSubmitting) return;
     setPasswordError("");
     if (passwordForm.password.length < 12) {
       setPasswordError("Use at least 12 characters for your new administrator password.");
@@ -365,10 +448,11 @@ function App() {
       setPasswordError("The password confirmation does not match.");
       return;
     }
+    setPasswordSubmitting(true);
     try {
       const result = await api.changePassword(passwordForm.password, token);
       localStorage.setItem("paynear-token", result.token);
-      localStorage.setItem("paynear-user", JSON.stringify(result.user));
+      localStorage.removeItem("paynear-user");
       setToken(result.token);
       setUser(result.user);
       setPasswordForm({ password: "", confirmPassword: "" });
@@ -376,6 +460,8 @@ function App() {
       alert("Password updated. Your PayNear account is ready.");
     } catch (requestError) {
       setPasswordError(requestError.message);
+    } finally {
+      setPasswordSubmitting(false);
     }
   }
 
@@ -425,7 +511,6 @@ function App() {
     try {
       const result = await api.favorite(id, token);
       setUser(result.user);
-      localStorage.setItem("paynear-user", JSON.stringify(result.user));
     } catch (requestError) { alert(requestError.message); }
   }
 
@@ -434,7 +519,6 @@ function App() {
     try {
       const result = await api.preferences(preferredPaymentMethod, token);
       setUser(result.user);
-      localStorage.setItem("paynear-user", JSON.stringify(result.user));
       alert("Payment preference updated.");
     } catch (requestError) { alert(requestError.message); }
   }
@@ -458,18 +542,30 @@ function App() {
     const body = messageDraft.trim();
     if (!body || !socketRef.current || !selected) return;
     socketRef.current.emit("send-message", { establishmentId: selected._id, body }, (result) => {
-      if (!result.ok) alert(result.message);
+      if (!result.ok) { alert(result.message); return; }
+      setMessageDraft("");
     });
-    setMessageDraft("");
   }
 
   async function createListing(event) {
     event.preventDefault();
+    if (listingSubmitting) return;
     const form = event.currentTarget;
     setAdminMessage("");
+    setListingSubmitting(true);
+    let createdEstablishment = null;
     try {
       const { establishment } = await api.createListing(listingForm, token);
-      if (listingImage) await api.uploadImage(establishment._id, listingImage, token);
+      createdEstablishment = establishment;
+      if (listingImage) {
+        try {
+          await api.uploadImage(establishment._id, listingImage, token);
+        } catch (uploadError) {
+          setAdminMessage(`${establishment.name} was saved, but its image did not upload: ${uploadError.message} Use Replace image on the saved listing; do not submit a duplicate.`);
+          await (user?.role === "owner" ? loadOwnerListings() : loadAdminListings());
+          return;
+        }
+      }
       setAdminMessage(`${establishment.name} was submitted for administrator review.`);
       setListingForm(initialListing);
       setListingImage(null);
@@ -477,10 +573,18 @@ function App() {
       await loadResults();
       if (user?.role === "owner") await loadOwnerListings();
       if (user?.role === "admin") await loadAdminListings();
-    } catch (requestError) { setAdminMessage(requestError.message); }
+    } catch (requestError) {
+      setAdminMessage(createdEstablishment
+        ? `${createdEstablishment.name} was saved, but setup could not finish. Check My listings before trying again.`
+        : requestError.message);
+    } finally {
+      setListingSubmitting(false);
+    }
   }
 
   async function updateListing(id, updates) {
+    if (listingActionBusy) return;
+    setListingActionBusy(`update:${id}`);
     try {
       await api.updateListing(id, updates, token);
       await loadResults();
@@ -488,10 +592,12 @@ function App() {
       if (user?.role === "admin") await loadAdminListings();
       setAdminMessage("Listing updated.");
     } catch (requestError) { setAdminMessage(requestError.message); }
+    finally { setListingActionBusy(""); }
   }
 
   async function uploadListingImage(id, file) {
-    if (!file) return;
+    if (!file || listingActionBusy) return;
+    setListingActionBusy(`image:${id}`);
     try {
       await api.uploadImage(id, file, token);
       await loadResults();
@@ -499,9 +605,12 @@ function App() {
       if (user?.role === "admin") await loadAdminListings();
       setAdminMessage(user?.role === "owner" ? "Image uploaded. The listing returned to the review queue." : "Image uploaded and linked to the listing.");
     } catch (requestError) { setAdminMessage(requestError.message); }
+    finally { setListingActionBusy(""); }
   }
 
   async function reviewListing(id, action, reviewNotes = "") {
+    if (listingActionBusy) return;
+    setListingActionBusy(`${action}:${id}`);
     try {
       const { establishment } = await api.reviewListing(id, { action, reviewNotes }, token);
       await Promise.all([loadAdminListings(), loadResults()]);
@@ -509,6 +618,7 @@ function App() {
         ? `${establishment.name} is verified and publicly visible.`
         : `${establishment.name} was returned to the owner with review notes.`);
     } catch (requestError) { setAdminMessage(requestError.message); }
+    finally { setListingActionBusy(""); }
   }
 
   function useCurrentLocationForListing() {
@@ -554,14 +664,14 @@ function App() {
             </>}
         </nav>
         <div className="header-actions">
-          {user && !user.mustChangePassword && <div className="notice-wrap">
+          {!sessionChecking && user && !user.mustChangePassword && <div className="notice-wrap">
             <button className="icon-button" aria-label="Notifications" aria-expanded={showNotifications} onClick={() => { setShowNotifications((value) => !value); setShowProfile(false); }}>Notifications{unreadCount > 0 && <span className="notice-count">{unreadCount}</span>}</button>
             {showNotifications && <div className="notification-popover">
               <div className="popover-heading"><strong>Updates</strong><span>{unreadCount} unread</span></div>
               {notifications.length === 0 ? <p className="empty-note">No updates yet.</p> : notifications.slice(0, 5).map((notice) => <button key={notice._id} className={`notice-item ${notice.isRead ? "read" : ""}`} onClick={() => markRead(notice._id)}><strong>{notice.title}</strong><span>{notice.message}</span></button>)}
             </div>}
           </div>}
-          {user ? <div className="profile-wrap" ref={profileMenuRef}>
+          {sessionChecking ? <span className="session-checking" role="status">Checking session…</span> : user ? <div className="profile-wrap" ref={profileMenuRef}>
             <button className="profile-button" aria-expanded={showProfile} aria-haspopup="menu" onClick={() => { setShowProfile((value) => !value); setShowNotifications(false); }}><span className="profile-avatar">{user.name.slice(0, 1).toUpperCase()}</span><span className="profile-name">{user.name.split(" ")[0]}</span><span className="profile-chevron" aria-hidden="true">⌄</span></button>
             {showProfile && <div className="profile-menu" role="menu">
               <div className="profile-summary"><span className="profile-avatar large">{user.name.slice(0, 1).toUpperCase()}</span><div><strong>{user.name}</strong><span>{user.email}</span><small>{user.role === "owner" ? "Business owner" : user.role === "admin" ? "Administrator" : "PayNear user"}</small></div></div>
@@ -573,13 +683,13 @@ function App() {
 
       <main>
         {user?.mustChangePassword ? <PasswordChangePage
-          user={user} form={passwordForm} setForm={setPasswordForm} submit={submitPasswordChange} error={passwordError} logout={logout}
+          user={user} form={passwordForm} setForm={setPasswordForm} submit={submitPasswordChange} error={passwordError} logout={logout} submitting={passwordSubmitting}
         /> : <>
         {activePage === "discover" && <DiscoverPage
           filters={filters} setFilters={setFilters} aiPrompt={aiPrompt} setAiPrompt={setAiPrompt} applyAiSuggestion={applyAiSuggestion}
           aiMessage={aiMessage} aiProvider={aiProvider} establishments={establishments} selected={selected} setSelected={setSelected}
           loading={loading} error={error} favoriteIds={favoriteIds} toggleFavorite={toggleFavorite} openChat={openChat}
-          userPosition={userPosition} requestNearbyLocation={requestNearbyLocation} locationStatus={locationStatus}
+          userPosition={userPosition} requestNearbyLocation={requestNearbyLocation} locationStatus={locationStatus} retryResults={loadResults}
         />}
         {activePage === "saved" && <SavedPage user={user} savedPlaces={savedPlaces} selected={selected} setSelected={setSelected} toggleFavorite={toggleFavorite} updatePreference={updatePreference} openDiscover={() => selectPage("discover")} />}
         {activePage === "chat" && <ChatPage user={user} selected={selected} messages={messages} draft={messageDraft} setDraft={setMessageDraft} sendMessage={sendMessage} status={chatStatus} requestSignIn={() => { setAuthMode("login"); setAuthOpen(true); }} />}
@@ -587,23 +697,25 @@ function App() {
           user={user} listingForm={listingForm} setListingForm={setListingForm} createListing={createListing}
           listingImage={listingImage} setListingImage={setListingImage} useCurrentLocation={useCurrentLocationForListing}
           listings={ownerListings} updateListing={updateListing} uploadListingImage={uploadListingImage} message={adminMessage}
+          submitting={listingSubmitting} actionBusy={listingActionBusy}
         />}
         {activePage === "admin" && <AdminPage
           user={user} listingForm={listingForm} setListingForm={setListingForm} createListing={createListing}
           listingImage={listingImage} setListingImage={setListingImage} useCurrentLocation={useCurrentLocationForListing}
           listings={adminListings} updateListing={updateListing} uploadListingImage={uploadListingImage}
           reviewListing={reviewListing} message={adminMessage} requestSignIn={() => { setAuthMode("login"); setAuthOpen(true); }}
+          submitting={listingSubmitting} actionBusy={listingActionBusy}
         />}
         </>}
       </main>
 
       {toast && <div className="toast" role="status">{toast}</div>}
-      {authOpen && <AuthDialog mode={authMode} setMode={setAuthMode} form={authForm} setForm={setAuthForm} submit={submitAuth} error={authError} close={closeAuthDialog} />}
+      {authOpen && <AuthDialog mode={authMode} setMode={(nextMode) => { setAuthMode(nextMode); setAuthError(""); }} form={authForm} setForm={setAuthForm} submit={submitAuth} error={authError} close={closeAuthDialog} submitting={authSubmitting} />}
     </div>
   );
 }
 
-function PasswordChangePage({ user, form, setForm, submit, error, logout }) {
+function PasswordChangePage({ user, form, setForm, submit, error, logout, submitting }) {
   const update = (field) => (event) => setForm((current) => ({ ...current, [field]: event.target.value }));
   return <section className="password-change-page">
     <div className="password-change-card">
@@ -615,16 +727,21 @@ function PasswordChangePage({ user, form, setForm, submit, error, logout }) {
         <label>New password<input required type="password" minLength="12" autoComplete="new-password" value={form.password} onChange={update("password")} /></label>
         <small>Use at least 12 characters. Do not reuse the temporary password.</small>
         <label>Confirm new password<input required type="password" minLength="12" autoComplete="new-password" value={form.confirmPassword} onChange={update("confirmPassword")} /></label>
-        {error && <p className="form-error">{error}</p>}
-        <button className="button primary full" type="submit">Set password and continue</button>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <button className="button primary full" type="submit" disabled={submitting}>{submitting ? "Securing account…" : "Set password and continue"}</button>
       </form>
       <button className="password-change-signout" type="button" onClick={logout}>Sign out and finish later</button>
     </div>
   </section>;
 }
 
-function DiscoverPage({ filters, setFilters, aiPrompt, setAiPrompt, applyAiSuggestion, aiMessage, aiProvider, establishments, selected, setSelected, loading, error, favoriteIds, toggleFavorite, openChat, userPosition, requestNearbyLocation, locationStatus }) {
-  const clearFilters = () => setFilters(initialFilters);
+function DiscoverPage({ filters, setFilters, aiPrompt, setAiPrompt, applyAiSuggestion, aiMessage, aiProvider, establishments, selected, setSelected, loading, error, favoriteIds, toggleFavorite, openChat, userPosition, requestNearbyLocation, locationStatus, retryResults }) {
+  const clearFilters = () => setFilters({
+    ...initialFilters,
+    latitude: userPosition?.latitude ?? "",
+    longitude: userPosition?.longitude ?? "",
+  });
+  const hasActiveFilters = Boolean(filters.query || filters.method || filters.openNow || Number(filters.minRating));
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   return <section className="discover-map-page map-mode">
     <NearbyMap establishments={establishments} setSelected={setSelected} userPosition={userPosition} radiusKm={filters.radiusKm} locationStatus={locationStatus} onOpenChat={openChat} fullScreen />
@@ -644,15 +761,18 @@ function DiscoverPage({ filters, setFilters, aiPrompt, setAiPrompt, applyAiSugge
       <details className="map-advanced-filters"><summary>More filters</summary><label className="switch"><input type="checkbox" checked={filters.openNow} onChange={(event) => setFilters((current) => ({ ...current, openNow: event.target.checked }))} /><span>Open now only</span></label><label>Minimum rating<select value={filters.minRating} onChange={(event) => setFilters((current) => ({ ...current, minRating: Number(event.target.value) }))}><option value="0">Any rating</option><option value="4">4.0 and up</option><option value="4.5">4.5 and up</option></select></label></details>
       <form className="map-ai-box" onSubmit={applyAiSuggestion}><span className="ai-spark">AI</span><input value={aiPrompt} onChange={(event) => setAiPrompt(event.target.value)} placeholder="Ask: cafe with GCash, open now" /><button className="button primary" type="submit">Ask</button></form>
       {aiMessage && <div className="ai-result"><strong>{aiProvider}</strong><span>{aiMessage}</span></div>}
-      {error && <div className="error-box">{error}</div>}
+      {error && <div className="error-box" role="alert"><span>{error}</span><button className="text-button" type="button" onClick={retryResults}>Retry</button></div>}
       <div className="map-panel-footer"><span>{loading ? "Looking around..." : `${establishments.length} places nearby`}</span></div>
-      <div className="map-sidebar-results"><div className="map-sidebar-results-heading"><span className="eyebrow">RESULTS</span><span>Select a place to return to the map and inspect its location.</span></div><div className="map-sidebar-results-list">{!loading && establishments.map((place) => <PlaceCard key={place._id} place={place} selected={selected?._id === place._id} onClick={() => { setSelected(place); setMobilePanelOpen(false); }} favorite={favoriteIds.includes(place._id)} toggleFavorite={toggleFavorite} />)}</div></div>
+      <div className="map-sidebar-results"><div className="map-sidebar-results-heading"><span className="eyebrow">RESULTS</span><span>{establishments.length ? "Select a place to inspect its exact map location." : "Only administrator-verified stores are published here."}</span></div><div className="map-sidebar-results-list">
+        {!loading && !error && establishments.length === 0 && <div className="map-empty-state"><strong>{hasActiveFilters ? "No verified places match." : "No verified places published yet."}</strong><span>{hasActiveFilters ? "Clear the filters or increase the search radius." : "Business submissions remain private until a PayNear administrator verifies and publishes them."}</span>{hasActiveFilters && <button className="text-button" type="button" onClick={clearFilters}>Clear filters</button>}</div>}
+        {!loading && establishments.map((place) => <PlaceCard key={place._id} place={place} selected={selected?._id === place._id} onClick={() => { setSelected(place); setMobilePanelOpen(false); }} favorite={favoriteIds.includes(place._id)} toggleFavorite={toggleFavorite} />)}
+      </div></div>
     </aside>
   </section>;
 }
 
 function PlaceCard({ place, selected, onClick, favorite, toggleFavorite }) {
-  return <article className={`place-card ${selected ? "selected" : ""}`}><button className="card-main" onClick={onClick}><img src={place.imageUrl} alt={`${place.name} storefront`} /><div className="card-copy"><div className="card-topline"><span>{place.category}</span><span>{place.distanceKm} km</span></div><h3>{place.name}</h3><p>{place.address}</p><div className="card-footer"><span className="rating">Star {place.rating}</span>{place.openNow ? <span className="open">Open now</span> : <span className="closed">Closed</span>}<span className="card-payment-logos">{place.acceptedPaymentMethods.slice(0, 3).map((method) => <PaymentLogo key={method} method={method} compact />)}</span></div></div></button><button className={`favorite-button ${favorite ? "saved" : ""}`} aria-label="Save place" onClick={() => toggleFavorite(place._id)}>{favorite ? "Saved" : "Save"}</button></article>;
+  return <article className={`place-card ${selected ? "selected" : ""}`}><button className="card-main" onClick={onClick}><img src={place.imageUrl || payNearEmblem} onError={handleStoreImageError} alt={`${place.name} storefront`} /><div className="card-copy"><div className="card-topline"><span>{place.category}</span><span>{place.distanceKm} km</span></div><h3>{place.name}</h3><p>{place.address}</p><div className="card-footer"><span className="rating">Star {place.rating}</span>{place.openNow ? <span className="open">Open now</span> : <span className="closed">Closed</span>}<span className="card-payment-logos">{place.acceptedPaymentMethods.slice(0, 3).map((method) => <PaymentLogo key={method} method={method} compact />)}</span></div></div></button><button className={`favorite-button ${favorite ? "saved" : ""}`} aria-label={`${favorite ? "Remove" : "Save"} ${place.name}`} onClick={() => toggleFavorite(place._id)}>{favorite ? "Saved" : "Save"}</button></article>;
 }
 
 function SavedPage({ user, savedPlaces, selected, setSelected, toggleFavorite, updatePreference, openDiscover }) {
@@ -663,7 +783,7 @@ function SavedPage({ user, savedPlaces, selected, setSelected, toggleFavorite, u
 function ChatPage({ user, selected, messages, draft, setDraft, sendMessage, status, requestSignIn }) {
   if (!user) return <section className="simple-page"><span className="eyebrow">REAL-TIME CHAT</span><h1>Ask before you go.</h1><p>Sign in to use the protected Socket.IO chat channel with a selected establishment.</p><button className="button primary" onClick={requestSignIn}>Sign in to chat</button></section>;
   if (!selected) return <section className="simple-page"><h1>Choose an establishment first.</h1><p>Return to Discover, select a listing, then start a conversation.</p></section>;
-  return <section className="chat-page"><div className="chat-card"><div className="chat-header"><img src={selected.imageUrl} alt="" /><div><span className="eyebrow">LIVE CHAT WITH {selected.ownerName || selected.name}</span><h1>{selected.name}</h1><p>{selected.ownerName ? `${selected.ownerName} · ${selected.ownerTitle || "Listing contact"} — ${status}` : status}</p></div></div><div className="messages">{messages.length === 0 ? <div className="chat-empty">Start by asking whether GCash is accepted today.</div> : messages.map((message) => <div key={message._id} className={`message ${message.senderRole === "establishment" ? "from-store" : "from-user"}`}><span>{message.senderRole === "establishment" ? selected.ownerName || selected.name : "You"}</span><p>{message.body}</p><small>{formatTime(message.createdAt)}</small></div>)}</div><form className="message-form" onSubmit={sendMessage}><input value={draft} onChange={(event) => setDraft(event.target.value)} maxLength="500" placeholder="Type a message..." /><button className="button primary">Send</button></form></div></section>;
+  return <section className="chat-page"><div className="chat-card"><div className="chat-header"><img src={selected.imageUrl || payNearEmblem} onError={handleStoreImageError} alt="" /><div><span className="eyebrow">LIVE CHAT WITH {selected.ownerName || selected.name}</span><h1>{selected.name}</h1><p>{selected.ownerName ? `${selected.ownerName} · ${selected.ownerTitle || "Listing contact"} — ${status}` : status}</p></div></div><div className="messages">{messages.length === 0 ? <div className="chat-empty">Start by asking whether GCash is accepted today.</div> : messages.map((message) => <div key={message._id} className={`message ${message.senderRole === "establishment" ? "from-store" : "from-user"}`}><span>{message.senderRole === "establishment" ? selected.ownerName || selected.name : "You"}</span><p>{message.body}</p><small>{formatTime(message.createdAt)}</small></div>)}</div><form className="message-form" onSubmit={sendMessage}><input value={draft} onChange={(event) => setDraft(event.target.value)} maxLength="500" placeholder="Type a message..." /><button className="button primary">Send</button></form></div></section>;
 }
 
 function StatusBadge({ status }) {
@@ -686,6 +806,11 @@ function ListingFormFields({ listingForm, setListingForm, setListingImage, useCu
       <label>Longitude<input required type="number" step="any" min="-180" max="180" value={listingForm.longitude} onChange={(event) => setListingForm((current) => ({ ...current, longitude: event.target.value }))} placeholder="124.0005" /></label>
     </div>
     <button className="location-button" type="button" onClick={useCurrentLocation}>Use my current coordinates</button>
+    <ListingLocationPicker
+      latitude={listingForm.latitude}
+      longitude={listingForm.longitude}
+      onChange={(location) => setListingForm((current) => ({ ...current, ...location }))}
+    />
     {showContact && <>
       <label>Listing contact<input required value={listingForm.ownerName} onChange={(event) => setListingForm((current) => ({ ...current, ownerName: event.target.value }))} placeholder="e.g. Jamie Cruz" /></label>
       <label>Contact role<input required value={listingForm.ownerTitle} onChange={(event) => setListingForm((current) => ({ ...current, ownerTitle: event.target.value }))} placeholder="e.g. Store owner" /></label>
@@ -696,7 +821,7 @@ function ListingFormFields({ listingForm, setListingForm, setListingImage, useCu
   </>;
 }
 
-function OwnerPage({ user, listingForm, setListingForm, createListing, listingImage, setListingImage, useCurrentLocation, listings, updateListing, uploadListingImage, message }) {
+function OwnerPage({ user, listingForm, setListingForm, createListing, listingImage, setListingImage, useCurrentLocation, listings, updateListing, uploadListingImage, message, submitting, actionBusy }) {
   if (user?.role !== "owner") return <section className="simple-page"><span className="eyebrow">BUSINESS AREA</span><h1>Business owner access is required.</h1><p>Register as a business owner to submit and manage your own store listings.</p></section>;
   return <section className="admin-page owner-page">
     <div className="page-heading"><span className="eyebrow">BUSINESS OWNER AREA</span><h1>Submit your store</h1><p>Provide complete store information and a recognizable image. Your listing stays private until a PayNear administrator verifies and publishes it.</p></div>
@@ -705,22 +830,22 @@ function OwnerPage({ user, listingForm, setListingForm, createListing, listingIm
         <h2>New store submission</h2>
         <div className="owner-account-note"><strong>{user.name}</strong><span>Automatically recorded as the listing owner</span></div>
         <ListingFormFields listingForm={listingForm} setListingForm={setListingForm} listingImage={listingImage} setListingImage={setListingImage} useCurrentLocation={useCurrentLocation} />
-        <button className="button primary" type="submit">Submit store for review</button>
-        {message && <p className="form-message">{message}</p>}
+        <button className="button primary" type="submit" disabled={submitting}>{submitting ? "Submitting securely…" : "Submit store for review"}</button>
+        {message && <p className="form-message" role="status">{message}</p>}
       </form>
       <div className="admin-list">
         <div className="list-heading"><div><span className="eyebrow">SUBMISSIONS</span><h2>My listings</h2></div><span>{listings.length} total</span></div>
         {listings.length === 0 ? <div className="empty-state"><h2>No store yet.</h2><p>Submit your first listing using the form.</p></div> : listings.map((place) => <article className="admin-row owner-listing-row" key={place._id}>
-          <img src={place.imageUrl || payNearEmblem} alt="" />
+          <img src={place.imageUrl || payNearEmblem} onError={handleStoreImageError} alt="" />
           <div className="listing-summary"><div><strong>{place.name}</strong><StatusBadge status={place.verificationStatus} /></div><span>{place.category} · {place.address}</span><small>{place.isActive ? "Published publicly" : "Not visible to public users"}</small>{place.reviewNotes && <p className="review-note"><strong>Admin note:</strong> {place.reviewNotes}</p>}</div>
-          <div className="admin-row-actions"><button className="text-button" onClick={() => updateListing(place._id, { openNow: !place.openNow })}>{place.openNow ? "Mark closed" : "Mark open"}</button><label className="upload-label">Replace image<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => uploadListingImage(place._id, event.target.files?.[0])} /></label></div>
+          <div className="admin-row-actions"><button className="text-button" disabled={Boolean(actionBusy)} onClick={() => updateListing(place._id, { openNow: !place.openNow })}>{actionBusy === `update:${place._id}` ? "Updating…" : place.openNow ? "Mark closed" : "Mark open"}</button><label className={`upload-label ${actionBusy ? "disabled" : ""}`}>{actionBusy === `image:${place._id}` ? "Uploading…" : "Replace image"}<input disabled={Boolean(actionBusy)} type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => uploadListingImage(place._id, event.target.files?.[0])} /></label></div>
         </article>)}
       </div>
     </div>
   </section>;
 }
 
-function AdminPage({ user, listingForm, setListingForm, createListing, listingImage, setListingImage, useCurrentLocation, listings, updateListing, uploadListingImage, reviewListing, message, requestSignIn }) {
+function AdminPage({ user, listingForm, setListingForm, createListing, listingImage, setListingImage, useCurrentLocation, listings, updateListing, uploadListingImage, reviewListing, message, requestSignIn, submitting, actionBusy }) {
   const [statusFilter, setStatusFilter] = useState("pending");
   const [notes, setNotes] = useState({});
   if (user?.role !== "admin") return <section className="simple-page"><span className="eyebrow">ADMIN AREA</span><h1>Administrator access is required.</h1><p>Sign in with an administrator account provisioned by the PayNear team.</p><button className="button primary" onClick={requestSignIn}>Admin sign in</button></section>;
@@ -729,34 +854,57 @@ function AdminPage({ user, listingForm, setListingForm, createListing, listingIm
   return <section className="admin-page moderation-page">
     <div className="page-heading"><span className="eyebrow">PROTECTED ADMIN AREA</span><h1>Review store submissions</h1><p>Only listings verified here become visible in public PayNear search and map results.</p></div>
     <div className="moderation-stats"><div><strong>{pendingCount}</strong><span>Needs review</span></div><div><strong>{listings.filter((place) => place.verificationStatus === "verified").length}</strong><span>Verified</span></div><div><strong>{listings.filter((place) => place.verificationStatus === "rejected").length}</strong><span>Rejected</span></div></div>
-    {message && <p className="form-message moderation-message">{message}</p>}
+    {message && <p className="form-message moderation-message" role="status">{message}</p>}
     <div className="moderation-toolbar" role="group" aria-label="Filter submissions">{["pending", "changes_requested", "verified", "rejected", "all"].map((status) => <button key={status} className={statusFilter === status ? "active" : ""} onClick={() => setStatusFilter(status)}>{status.replace("_", " ")}</button>)}</div>
     <div className="review-list">
       {filteredListings.length === 0 ? <div className="empty-state"><h2>No listings in this queue.</h2><p>Choose another status to inspect the directory.</p></div> : filteredListings.map((place) => <article className="review-card" key={place._id}>
-        <img src={place.imageUrl || payNearEmblem} alt={`${place.name} storefront`} />
+        <img src={place.imageUrl || payNearEmblem} onError={handleStoreImageError} alt={`${place.name} storefront`} />
         <div className="review-card-body">
           <div className="review-card-heading"><div><StatusBadge status={place.verificationStatus} /><h2>{place.name}</h2><p>{place.ownerName || "Unassigned owner"} · {place.ownerTitle || "Listing contact"}</p></div><span>{place.category}</span></div>
           <dl><div><dt>Address</dt><dd>{place.address}</dd></div><div><dt>Coordinates</dt><dd>{place.location?.coordinates?.slice().reverse().join(", ") || "Missing"}</dd></div><div><dt>Payments</dt><dd>{place.acceptedPaymentMethods.join(", ")}</dd></div></dl>
           <label className="review-notes">Review notes<textarea maxLength="500" value={notes[place._id] ?? place.reviewNotes ?? ""} onChange={(event) => setNotes((current) => ({ ...current, [place._id]: event.target.value }))} placeholder="Required when rejecting or requesting changes" /></label>
-          <div className="review-actions"><button className="button primary" disabled={!place.imageUrl} onClick={() => reviewListing(place._id, "verify", notes[place._id] || "")}>Verify & publish</button><button className="button outline" onClick={() => reviewListing(place._id, "request_changes", notes[place._id] || "")}>Request changes</button><button className="text-button danger" onClick={() => reviewListing(place._id, "reject", notes[place._id] || "")}>Reject</button><label className="upload-label">Replace image<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => uploadListingImage(place._id, event.target.files?.[0])} /></label>{place.verificationStatus === "verified" && <button className="text-button" onClick={() => updateListing(place._id, { isActive: !place.isActive })}>{place.isActive ? "Unpublish" : "Republish"}</button>}</div>
+          <div className="review-actions"><button className="button primary" disabled={!place.imageUrl || Boolean(actionBusy)} onClick={() => reviewListing(place._id, "verify", notes[place._id] || "")}>{actionBusy === `verify:${place._id}` ? "Publishing…" : "Verify & publish"}</button><button className="button outline" disabled={Boolean(actionBusy)} onClick={() => reviewListing(place._id, "request_changes", notes[place._id] || "")}>Request changes</button><button className="text-button danger" disabled={Boolean(actionBusy)} onClick={() => reviewListing(place._id, "reject", notes[place._id] || "")}>Reject</button><label className={`upload-label ${actionBusy ? "disabled" : ""}`}>{actionBusy === `image:${place._id}` ? "Uploading…" : "Replace image"}<input disabled={Boolean(actionBusy)} type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => uploadListingImage(place._id, event.target.files?.[0])} /></label>{place.verificationStatus === "verified" && <button className="text-button" disabled={Boolean(actionBusy)} onClick={() => updateListing(place._id, { isActive: !place.isActive })}>{actionBusy === `update:${place._id}` ? "Updating…" : place.isActive ? "Unpublish" : "Republish"}</button>}</div>
         </div>
       </article>)}
     </div>
-    <details className="manual-listing-panel"><summary>Add a listing manually</summary><form className="listing-form" onSubmit={createListing}><h2>Administrator-created listing</h2><ListingFormFields listingForm={listingForm} setListingForm={setListingForm} listingImage={listingImage} setListingImage={setListingImage} useCurrentLocation={useCurrentLocation} showContact /><button className="button primary" type="submit">Create pending listing</button></form></details>
+    <details className="manual-listing-panel"><summary>Add a listing manually</summary><form className="listing-form" onSubmit={createListing}><h2>Administrator-created listing</h2><ListingFormFields listingForm={listingForm} setListingForm={setListingForm} listingImage={listingImage} setListingImage={setListingImage} useCurrentLocation={useCurrentLocation} showContact /><button className="button primary" type="submit" disabled={submitting}>{submitting ? "Creating listing…" : "Create pending listing"}</button></form></details>
   </section>;
 }
 
-function AuthDialog({ mode, setMode, form, setForm, submit, error, close }) {
+function AuthDialog({ mode, setMode, form, setForm, submit, error, close, submitting }) {
+  const dialogRef = useRef(null);
+  const submittingRef = useRef(submitting);
+  submittingRef.current = submitting;
   const update = (field) => (event) => setForm((current) => ({ ...current, [field]: event.target.value }));
-  return <div className="modal-backdrop" role="presentation">
-    <section className="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="auth-title">
-      <button className="modal-close" onClick={close} aria-label="Close">x</button>
+
+  useEffect(() => {
+    const previousFocus = document.activeElement;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const focusTimer = window.setTimeout(() => dialogRef.current?.querySelector("input")?.focus(), 0);
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape" && !submittingRef.current) close();
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.clearTimeout(focusTimer);
+      document.removeEventListener("keydown", closeOnEscape);
+      document.body.style.overflow = previousOverflow;
+      previousFocus?.focus?.();
+    };
+  }, [close]);
+
+  return <div className="modal-backdrop" role="presentation" onPointerDown={(event) => {
+    if (event.target === event.currentTarget && !submitting) close();
+  }}>
+    <section ref={dialogRef} className="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="auth-title" aria-describedby="auth-description">
+      <button className="modal-close" type="button" onClick={close} disabled={submitting} aria-label="Close">×</button>
       <img className="auth-emblem" src={payNearEmblem} alt="" />
       <h2 id="auth-title">{mode === "login" ? "Welcome back" : "Create your PayNear account"}</h2>
-      <p>{mode === "login" ? "Enter your PayNear email and password to continue." : "Choose a personal or business account. Business owners can submit and manage their own store listings."}</p>
-      <form onSubmit={submit}>
+      <p id="auth-description">{mode === "login" ? "Enter your PayNear email and password to continue." : "Choose a personal or business account. Business owners can submit and manage their own store listings."}</p>
+      <form onSubmit={submit} aria-busy={submitting}>
         {mode === "register" && <>
-          <label>Name<input required value={form.name} onChange={update("name")} /></label>
+          <label>Name<input required autoComplete="name" value={form.name} onChange={update("name")} /></label>
           <fieldset className="role-choice">
             <legend>Account type</legend>
             <label><input type="radio" name="role" value="user" checked={form.role === "user"} onChange={update("role")} /><span><strong>User</strong><small>Search, save places, and chat with stores.</small></span></label>
@@ -765,11 +913,11 @@ function AuthDialog({ mode, setMode, form, setForm, submit, error, close }) {
         </>}
         <label>Email<input type="email" required autoComplete="email" value={form.email} onChange={update("email")} /></label>
         <label>Password<input type="password" minLength="8" required autoComplete={mode === "login" ? "current-password" : "new-password"} value={form.password} onChange={update("password")} /></label>
-        {error && <p className="form-error">{error}</p>}
-        <button className="button primary full" type="submit">{mode === "login" ? "Sign in" : "Create account"}</button>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <button className="button primary full" type="submit" disabled={submitting}>{submitting ? (mode === "login" ? "Signing in…" : "Creating account…") : mode === "login" ? "Sign in" : "Create account"}</button>
       </form>
       {mode === "login" && <p className="admin-access-note">Administrator accounts are issued privately by the PayNear team and cannot be created here.</p>}
-      <p className="auth-switch">{mode === "login" ? "New here?" : "Already have an account?"} <button onClick={() => setMode(mode === "login" ? "register" : "login")}>{mode === "login" ? "Register" : "Sign in"}</button></p>
+      <p className="auth-switch">{mode === "login" ? "New here?" : "Already have an account?"} <button type="button" disabled={submitting} onClick={() => setMode(mode === "login" ? "register" : "login")}>{mode === "login" ? "Register" : "Sign in"}</button></p>
     </section>
   </div>;
 }

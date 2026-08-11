@@ -1,4 +1,5 @@
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000/api";
+const REQUEST_TIMEOUT_MS = 15000;
 
 export const socketOrigin = API_URL.replace(/\/api\/?$/, "");
 
@@ -6,16 +7,35 @@ export async function request(path, options = {}, token = "") {
   const headers = { ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }), ...(options.headers || {}) };
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const response = await fetch(`${API_URL}${path}`, { ...options, headers });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.message || "Request failed.");
-  return data;
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort("timeout"), REQUEST_TIMEOUT_MS);
+  const cancelFromCaller = () => controller.abort("cancelled");
+  options.signal?.addEventListener("abort", cancelFromCaller, { once: true });
+
+  try {
+    const response = await fetch(`${API_URL}${path}`, { ...options, headers, signal: controller.signal });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.message || "Request failed. Please try again.");
+    return data;
+  } catch (error) {
+    if (options.signal?.aborted) {
+      const cancelled = new Error("Request cancelled.");
+      cancelled.name = "AbortError";
+      throw cancelled;
+    }
+    if (controller.signal.aborted) throw new Error("PayNear is taking too long to respond. Please try again.");
+    if (error instanceof TypeError) throw new Error("Could not reach PayNear. Check your connection and try again.");
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+    options.signal?.removeEventListener("abort", cancelFromCaller);
+  }
 }
 
 export const api = {
-  listEstablishments(filters) {
+  listEstablishments(filters, options = {}) {
     const query = new URLSearchParams(Object.entries(filters).filter(([, value]) => value !== "" && value !== false && value !== 0));
-    return request(`/establishments?${query}`);
+    return request(`/establishments?${query}`, options);
   },
   getEstablishment(id) { return request(`/establishments/${id}`); },
   register(payload) { return request("/auth/register", { method: "POST", body: JSON.stringify(payload) }); },
