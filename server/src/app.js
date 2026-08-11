@@ -1,6 +1,3 @@
-import { randomUUID } from "node:crypto";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import bcrypt from "bcryptjs";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -16,10 +13,12 @@ import {
   dbReady,
   findUserByEmail,
   getEstablishment,
+  getEstablishmentImage,
   getMessages,
   getNotifications,
   getUser,
   listEstablishments,
+  listAdminEstablishments,
   listOwnerEstablishments,
   publicUser,
   readNotification,
@@ -30,18 +29,17 @@ import { suggestFilters } from "./services/aiService.js";
 
 dotenv.config();
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const uploadsDir = path.resolve(__dirname, "../uploads");
 const JWT_SECRET = process.env.JWT_SECRET || "paynear-demo-secret-change-before-deployment";
+const DEMO_PASSWORDS = {
+  "user@paynear.demo": "user123",
+  "owner@paynear.demo": "owner123",
+  "admin@paynear.demo": "admin123",
+};
 const ALLOWED_METHODS = ["GCash", "Maya", "QR Ph", "InstaPay", "BPI", "BDO", "UnionBank", "Card", "Cash", "Bank Transfer"];
 const ALLOWED_CATEGORIES = ["Cafe", "Restaurant", "Grocery", "Pharmacy", "Convenience Store"];
 
-const storage = multer.diskStorage({
-  destination: (_request, _file, callback) => callback(null, uploadsDir),
-  filename: (_request, file, callback) => callback(null, `${randomUUID()}${path.extname(file.originalname).toLowerCase()}`),
-});
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 3 * 1024 * 1024 },
   fileFilter: (_request, file, callback) => callback(null, ["image/jpeg", "image/png", "image/webp"].includes(file.mimetype)),
 });
@@ -65,15 +63,43 @@ function validateListing(input) {
   if (!ALLOWED_CATEGORIES.includes(input.category)) errors.push("Choose a valid category.");
   if (!String(input.address || "").trim()) errors.push("Address is required.");
   if (toMethods(input.acceptedPaymentMethods).length === 0) errors.push("Choose at least one accepted payment method.");
+  const latitude = Number(input.latitude);
+  const longitude = Number(input.longitude);
+  if (input.latitude === "" || input.latitude === null || input.latitude === undefined || !Number.isFinite(latitude) || latitude < -90 || latitude > 90) errors.push("Enter a valid latitude.");
+  if (input.longitude === "" || input.longitude === null || input.longitude === undefined || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) errors.push("Enter a valid longitude.");
   return errors;
+}
+
+function publicEstablishment(establishment) {
+  const listing = { ...establishment };
+  delete listing.ownerUserId;
+  delete listing.reviewedByUserId;
+  delete listing.reviewNotes;
+  delete listing.submittedAt;
+  return listing;
+}
+
+function isPublished(establishment) {
+  return establishment?.verificationStatus === "verified" && establishment?.isActive === true;
+}
+
+function canAccessEstablishment(user, establishment) {
+  return isPublished(establishment)
+    || user?.role === "admin"
+    || (user?.role === "owner" && String(establishment?.ownerUserId || "") === String(user?._id || ""));
+}
+
+function listingImageUrl(request, id) {
+  const apiOrigin = String(process.env.PUBLIC_API_URL || "").replace(/\/$/, "");
+  return `${apiOrigin || `${request.protocol}://${request.get("host")}`}/api/establishments/${id}/image?v=${Date.now()}`;
 }
 
 export function createApp() {
   const app = express();
+  app.set("trust proxy", 1);
   app.use(helmet({ crossOriginResourcePolicy: false }));
   app.use(cors({ origin: process.env.CLIENT_URL || "http://localhost:5173" }));
   app.use(express.json({ limit: "1mb" }));
-  app.use("/uploads", express.static(uploadsDir));
 
   const requireAuth = async (request, response, next) => {
     try {
@@ -91,6 +117,11 @@ export function createApp() {
 
   const requireOwner = (request, response, next) => {
     if (request.user?.role !== "owner") return response.status(403).json({ message: "Business owner access is required." });
+    return next();
+  };
+
+  const requireAdmin = (request, response, next) => {
+    if (request.user?.role !== "admin") return response.status(403).json({ message: "Administrator access is required." });
     return next();
   };
 
@@ -121,8 +152,8 @@ export function createApp() {
       const { email, password } = request.body;
       const user = await findUserByEmail(String(email || "").toLowerCase().trim());
       if (!user) return response.status(401).json({ message: "Incorrect email or password." });
-      const isDemoAdmin = user.email === "admin@paynear.demo" && password === "admin123";
-      const valid = isDemoAdmin || (user.passwordHash && await bcrypt.compare(password || "", user.passwordHash));
+      const isDemoAccount = !dbReady() && DEMO_PASSWORDS[user.email] === password;
+      const valid = isDemoAccount || (user.passwordHash && await bcrypt.compare(password || "", user.passwordHash));
       if (!valid) return response.status(401).json({ message: "Incorrect email or password." });
       return response.json({ token: tokenFor(user), user: safeUser(user) });
     } catch (error) {
@@ -147,7 +178,7 @@ export function createApp() {
   app.post("/api/account/favorites/:establishmentId", requireAuth, async (request, response, next) => {
     try {
       const establishment = await getEstablishment(request.params.establishmentId);
-      if (!establishment) return response.status(404).json({ message: "Establishment not found." });
+      if (!isPublished(establishment)) return response.status(404).json({ message: "Establishment not found." });
       const current = (request.user.favoriteEstablishmentIds || []).map(String);
       const id = String(establishment._id);
       const favoriteEstablishmentIds = current.includes(id) ? current.filter((item) => item !== id) : [...current, id];
@@ -169,7 +200,7 @@ export function createApp() {
         openNow: request.query.openNow === "true",
         minRating: Math.max(0, Number(request.query.minRating) || 0),
       });
-      return response.json({ establishments, mode: dbReady() ? "mongodb" : "demo" });
+      return response.json({ establishments: establishments.map(publicEstablishment), mode: dbReady() ? "mongodb" : "demo" });
     } catch (error) {
       return next(error);
     }
@@ -178,8 +209,24 @@ export function createApp() {
   app.get("/api/establishments/:id", async (request, response, next) => {
     try {
       const establishment = await getEstablishment(request.params.id);
-      if (!establishment || !establishment.isActive) return response.status(404).json({ message: "Establishment not found." });
-      return response.json({ establishment });
+      if (!establishment || !establishment.isActive || establishment.verificationStatus !== "verified") {
+        return response.status(404).json({ message: "Establishment not found." });
+      }
+      return response.json({ establishment: publicEstablishment(establishment) });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  app.get("/api/establishments/:id/image", async (request, response, next) => {
+    try {
+      const image = await getEstablishmentImage(request.params.id);
+      if (!image) return response.status(404).json({ message: "Listing image not found." });
+      response.set({
+        "Cache-Control": "public, max-age=86400, immutable",
+        "Content-Type": image.contentType,
+      });
+      return response.send(image.data);
     } catch (error) {
       return next(error);
     }
@@ -188,6 +235,14 @@ export function createApp() {
   app.get("/api/owner/establishments", requireAuth, requireOwner, async (request, response, next) => {
     try {
       return response.json({ establishments: await listOwnerEstablishments(String(request.user._id)) });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  app.get("/api/admin/establishments", requireAuth, requireAdmin, async (request, response, next) => {
+    try {
+      return response.json({ establishments: await listAdminEstablishments(String(request.query.status || "")) });
     } catch (error) {
       return next(error);
     }
@@ -206,10 +261,22 @@ export function createApp() {
           ownerTitle: "Business owner",
           ownerUserId: String(request.user._id),
           verificationStatus: "pending",
-          isActive: true,
+          isActive: false,
+          submittedAt: new Date(),
         }
-        : {};
-      const establishment = await createEstablishment({ ...request.body, ...ownerInput, acceptedPaymentMethods: toMethods(request.body.acceptedPaymentMethods) });
+        : { verificationStatus: "pending", isActive: false, submittedAt: new Date() };
+      const establishment = await createEstablishment({
+        name: String(request.body.name).trim(),
+        category: request.body.category,
+        address: String(request.body.address).trim(),
+        latitude: Number(request.body.latitude),
+        longitude: Number(request.body.longitude),
+        openNow: Boolean(request.body.openNow),
+        ownerName: request.user.role === "admin" ? String(request.body.ownerName || "").trim() : undefined,
+        ownerTitle: request.user.role === "admin" ? String(request.body.ownerTitle || "").trim() : undefined,
+        acceptedPaymentMethods: toMethods(request.body.acceptedPaymentMethods),
+        ...ownerInput,
+      });
       return response.status(201).json({ establishment });
     } catch (error) {
       return next(error);
@@ -223,11 +290,37 @@ export function createApp() {
       if (!canManageListing(request.user, existing)) return response.status(403).json({ message: "You can manage only your own listings." });
 
       const ownerAllowedFields = ["name", "category", "address", "acceptedPaymentMethods", "openNow", "latitude", "longitude"];
-      const updates = request.user.role === "owner"
-        ? Object.fromEntries(Object.entries(request.body).filter(([key]) => ownerAllowedFields.includes(key)))
-        : { ...request.body };
+      const adminAllowedFields = [...ownerAllowedFields, "ownerName", "ownerTitle", "isActive"];
+      const allowedFields = request.user.role === "owner" ? ownerAllowedFields : adminAllowedFields;
+      const updates = Object.fromEntries(Object.entries(request.body).filter(([key]) => allowedFields.includes(key)));
       if (updates.acceptedPaymentMethods) updates.acceptedPaymentMethods = toMethods(updates.acceptedPaymentMethods);
       if (updates.category && !ALLOWED_CATEGORIES.includes(updates.category)) return response.status(400).json({ message: "Choose a valid category." });
+      if (updates.latitude !== undefined || updates.longitude !== undefined) {
+        const currentCoordinates = existing.location?.coordinates || [];
+        const longitude = Number(updates.longitude ?? currentCoordinates[0]);
+        const latitude = Number(updates.latitude ?? currentCoordinates[1]);
+        if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+          return response.status(400).json({ message: "Enter valid latitude and longitude values." });
+        }
+        updates.location = { type: "Point", coordinates: [longitude, latitude] };
+        delete updates.latitude;
+        delete updates.longitude;
+      }
+      const requiresReview = request.user.role === "owner"
+        && Object.keys(updates).some((key) => ["name", "category", "address", "acceptedPaymentMethods", "location"].includes(key));
+      if (requiresReview) {
+        Object.assign(updates, {
+          verificationStatus: "pending",
+          isActive: false,
+          submittedAt: new Date(),
+          reviewedAt: null,
+          reviewedByUserId: null,
+          reviewNotes: "",
+          publishedAt: null,
+        });
+      } else if (updates.isActive === true && existing.verificationStatus !== "verified") {
+        return response.status(400).json({ message: "Only verified listings can be published." });
+      }
       const establishment = await updateEstablishment(request.params.id, updates);
       if (!establishment) return response.status(404).json({ message: "Establishment not found." });
       return response.json({ establishment });
@@ -242,10 +335,69 @@ export function createApp() {
       const existing = await getEstablishment(request.params.id);
       if (!existing) return response.status(404).json({ message: "Establishment not found." });
       if (!canManageListing(request.user, existing)) return response.status(403).json({ message: "You can manage only your own listings." });
-      const imageUrl = `${request.protocol}://${request.get("host")}/uploads/${request.file.filename}`;
-      const establishment = await updateEstablishment(request.params.id, { imageUrl });
+      const moderationUpdates = request.user.role === "owner"
+        ? {
+          verificationStatus: "pending",
+          isActive: false,
+          submittedAt: new Date(),
+          reviewedAt: null,
+          reviewedByUserId: null,
+          reviewNotes: "",
+          publishedAt: null,
+        }
+        : {};
+      const establishment = await updateEstablishment(request.params.id, {
+        ...moderationUpdates,
+        imageData: request.file.buffer,
+        imageContentType: request.file.mimetype,
+        imageUrl: listingImageUrl(request, request.params.id),
+      });
       if (!establishment) return response.status(404).json({ message: "Establishment not found." });
       return response.json({ establishment });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  app.patch("/api/admin/establishments/:id/review", requireAuth, requireAdmin, async (request, response, next) => {
+    try {
+      const establishment = await getEstablishment(request.params.id);
+      if (!establishment) return response.status(404).json({ message: "Establishment not found." });
+      const action = String(request.body.action || "");
+      const reviewNotes = String(request.body.reviewNotes || "").trim().slice(0, 500);
+      if (!new Set(["verify", "reject", "request_changes"]).has(action)) {
+        return response.status(400).json({ message: "Choose verify, reject, or request changes." });
+      }
+      if (action !== "verify" && !reviewNotes) {
+        return response.status(400).json({ message: "Add review notes so the owner knows what to change." });
+      }
+      if (action === "verify" && !establishment.imageUrl) {
+        return response.status(400).json({ message: "A store image is required before verification." });
+      }
+      const verificationStatus = action === "verify"
+        ? "verified"
+        : action === "reject" ? "rejected" : "changes_requested";
+      const reviewedAt = new Date();
+      const updated = await updateEstablishment(request.params.id, {
+        verificationStatus,
+        isActive: action === "verify",
+        reviewedAt,
+        reviewedByUserId: String(request.user._id),
+        reviewNotes,
+        publishedAt: action === "verify" ? reviewedAt : null,
+      });
+      if (updated.ownerUserId) {
+        await createNotification({
+          userId: String(updated.ownerUserId),
+          establishmentId: String(updated._id),
+          type: "listing",
+          title: action === "verify" ? "Store listing published" : action === "reject" ? "Store listing rejected" : "Store listing needs changes",
+          message: action === "verify"
+            ? `${updated.name} is verified and now visible on PayNear.`
+            : reviewNotes,
+        });
+      }
+      return response.json({ establishment: updated });
     } catch (error) {
       return next(error);
     }
@@ -264,7 +416,7 @@ export function createApp() {
   app.get("/api/messages/:establishmentId", requireAuth, async (request, response, next) => {
     try {
       const establishment = await getEstablishment(request.params.establishmentId);
-      if (!establishment) return response.status(404).json({ message: "Establishment not found." });
+      if (!establishment || !canAccessEstablishment(request.user, establishment)) return response.status(404).json({ message: "Establishment not found." });
       return response.json({ messages: await getMessages(request.params.establishmentId) });
     } catch (error) {
       return next(error);
@@ -282,7 +434,7 @@ export function createApp() {
   app.post("/api/notifications/gcash-demo", requireAuth, async (request, response, next) => {
     try {
       const establishment = await getEstablishment(request.body.establishmentId);
-      if (!establishment) return response.status(404).json({ message: "Establishment not found." });
+      if (!isPublished(establishment)) return response.status(404).json({ message: "Establishment not found." });
       const notification = await createNotification({
         userId: String(request.user._id),
         establishmentId: String(establishment._id),
@@ -334,7 +486,7 @@ export function attachSocketServer(io, jwtSecret = JWT_SECRET) {
   io.on("connection", (socket) => {
     socket.on("join-establishment", async ({ establishmentId }, callback = () => {}) => {
       const establishment = await getEstablishment(establishmentId);
-      if (!establishment) return callback({ ok: false, message: "Establishment not found." });
+      if (!establishment || !canAccessEstablishment(socket.user, establishment)) return callback({ ok: false, message: "Establishment not found." });
       socket.join(`establishment:${establishmentId}`);
       return callback({ ok: true });
     });
@@ -342,7 +494,9 @@ export function attachSocketServer(io, jwtSecret = JWT_SECRET) {
     socket.on("send-message", async ({ establishmentId, body }, callback = () => {}) => {
       const cleanBody = String(body || "").trim();
       const establishment = await getEstablishment(establishmentId);
-      if (!establishment || !cleanBody || cleanBody.length > 500) return callback({ ok: false, message: "Enter a message up to 500 characters." });
+      if (!establishment || !canAccessEstablishment(socket.user, establishment) || !cleanBody || cleanBody.length > 500) {
+        return callback({ ok: false, message: "Enter a message up to 500 characters." });
+      }
       const isListingOwner = socket.user.role === "owner" && String(establishment.ownerUserId || "") === String(socket.user._id);
       const message = await createMessage({
         establishmentId: String(establishment._id),

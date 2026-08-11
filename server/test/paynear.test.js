@@ -60,18 +60,61 @@ test("local AI assistant suggests safe directory filters without an API key", as
   if (previousModel) process.env.OPENAI_MODEL = previousModel;
 });
 
-test("business owners can create and manage only their own listings", async (context) => {
+test("demo user, owner, and administrator accounts sign in with the correct roles", async (context) => {
+  const { app } = createApp();
+  const server = http.createServer(app);
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  context.after(() => new Promise((resolve) => server.close(resolve)));
+  const baseUrl = `http://127.0.0.1:${server.address().port}/api`;
+  const login = async (email, password) => {
+    const response = await fetch(`${baseUrl}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    return { response, body: await response.json() };
+  };
+
+  const accounts = [
+    { email: "user@paynear.demo", password: "user123", role: "user" },
+    { email: "owner@paynear.demo", password: "owner123", role: "owner" },
+    { email: "admin@paynear.demo", password: "admin123", role: "admin" },
+  ];
+
+  for (const account of accounts) {
+    const result = await login(account.email, account.password);
+    assert.equal(result.response.status, 200);
+    assert.equal(result.body.user.role, account.role);
+    assert.ok(result.body.token);
+  }
+
+  const wrongPassword = await login("admin@paynear.demo", "incorrect-password");
+  assert.equal(wrongPassword.response.status, 401);
+
+  const owner = await login("owner@paynear.demo", "owner123");
+  const ownerListings = await fetch(`${baseUrl}/owner/establishments`, {
+    headers: { Authorization: `Bearer ${owner.body.token}` },
+  });
+  const ownerListingsBody = await ownerListings.json();
+  assert.equal(ownerListings.status, 200);
+  assert.ok(ownerListingsBody.establishments.some((item) => item.name === "Sampaguita Kitchen"));
+});
+
+test("owner submissions stay private until an administrator verifies and publishes them", async (context) => {
   const { app } = createApp();
   const server = http.createServer(app);
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   context.after(() => new Promise((resolve) => server.close(resolve)));
   const baseUrl = `http://127.0.0.1:${server.address().port}/api`;
   const request = async (path, options = {}) => {
+    const headers = { ...(options.headers || {}) };
+    if (options.body && !(options.body instanceof FormData)) headers["Content-Type"] = "application/json";
     const response = await fetch(`${baseUrl}${path}`, {
       ...options,
-      headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+      headers,
     });
-    return { response, body: await response.json() };
+    const contentType = response.headers.get("content-type") || "";
+    return { response, body: contentType.includes("application/json") ? await response.json() : await response.arrayBuffer() };
   };
   const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
@@ -85,15 +128,31 @@ test("business owners can create and manage only their own listings", async (con
   const listing = await request("/establishments", {
     method: "POST",
     headers: { Authorization: `Bearer ${ownerRegistration.body.token}` },
-    body: JSON.stringify({ name: "Owner One Store", category: "Cafe", address: "Maribago, Lapu-Lapu City", acceptedPaymentMethods: ["GCash", "QR Ph"], openNow: true }),
+    body: JSON.stringify({
+      name: "Owner One Store",
+      category: "Cafe",
+      address: "Maribago, Lapu-Lapu City",
+      latitude: 10.2993,
+      longitude: 123.9953,
+      acceptedPaymentMethods: ["GCash", "QR Ph"],
+      openNow: true,
+    }),
   });
   assert.equal(listing.response.status, 201);
   assert.equal(listing.body.establishment.ownerName, "Owner One");
   assert.equal(listing.body.establishment.verificationStatus, "pending");
+  assert.equal(listing.body.establishment.isActive, false);
+
+  const publicBeforeReview = await request(`/establishments?query=${encodeURIComponent("Owner One Store")}`);
+  assert.equal(publicBeforeReview.response.status, 200);
+  assert.equal(publicBeforeReview.body.establishments.length, 0);
 
   const ownerListings = await request("/owner/establishments", { headers: { Authorization: `Bearer ${ownerRegistration.body.token}` } });
   assert.equal(ownerListings.response.status, 200);
   assert.ok(ownerListings.body.establishments.some((item) => item._id === listing.body.establishment._id));
+
+  const ownerAdminQueue = await request("/admin/establishments", { headers: { Authorization: `Bearer ${ownerRegistration.body.token}` } });
+  assert.equal(ownerAdminQueue.response.status, 403);
 
   const anotherOwner = await request("/auth/register", {
     method: "POST",
@@ -105,4 +164,63 @@ test("business owners can create and manage only their own listings", async (con
     body: JSON.stringify({ openNow: false }),
   });
   assert.equal(forbiddenUpdate.response.status, 403);
+
+  const adminLogin = await request("/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email: "admin@paynear.demo", password: "admin123" }),
+  });
+  assert.equal(adminLogin.response.status, 200);
+  assert.equal(adminLogin.body.user.role, "admin");
+
+  const adminQueue = await request("/admin/establishments?status=pending", { headers: { Authorization: `Bearer ${adminLogin.body.token}` } });
+  assert.equal(adminQueue.response.status, 200);
+  assert.ok(adminQueue.body.establishments.some((item) => item._id === listing.body.establishment._id));
+
+  const verifyWithoutImage = await request(`/admin/establishments/${listing.body.establishment._id}/review`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${adminLogin.body.token}` },
+    body: JSON.stringify({ action: "verify" }),
+  });
+  assert.equal(verifyWithoutImage.response.status, 400);
+
+  const imageForm = new FormData();
+  imageForm.append("image", new Blob([Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10])], { type: "image/png" }), "store.png");
+  const imageUpload = await request(`/establishments/${listing.body.establishment._id}/image`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${ownerRegistration.body.token}` },
+    body: imageForm,
+  });
+  assert.equal(imageUpload.response.status, 200);
+  assert.match(imageUpload.body.establishment.imageUrl, new RegExp(`/api/establishments/${listing.body.establishment._id}/image`));
+
+  const verify = await request(`/admin/establishments/${listing.body.establishment._id}/review`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${adminLogin.body.token}` },
+    body: JSON.stringify({ action: "verify", reviewNotes: "Store details and storefront image confirmed." }),
+  });
+  assert.equal(verify.response.status, 200);
+  assert.equal(verify.body.establishment.verificationStatus, "verified");
+  assert.equal(verify.body.establishment.isActive, true);
+
+  const publicAfterReview = await request(`/establishments?query=${encodeURIComponent("Owner One Store")}`);
+  assert.equal(publicAfterReview.response.status, 200);
+  assert.equal(publicAfterReview.body.establishments.length, 1);
+  assert.equal(publicAfterReview.body.establishments[0].ownerUserId, undefined);
+  assert.equal(publicAfterReview.body.establishments[0].reviewNotes, undefined);
+
+  const publicImage = await request(`/establishments/${listing.body.establishment._id}/image`);
+  assert.equal(publicImage.response.status, 200);
+  assert.equal(publicImage.response.headers.get("content-type"), "image/png");
+
+  const ownerSensitiveEdit = await request(`/establishments/${listing.body.establishment._id}`, {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${ownerRegistration.body.token}` },
+    body: JSON.stringify({ address: "Updated address pending another review" }),
+  });
+  assert.equal(ownerSensitiveEdit.response.status, 200);
+  assert.equal(ownerSensitiveEdit.body.establishment.verificationStatus, "pending");
+  assert.equal(ownerSensitiveEdit.body.establishment.isActive, false);
+
+  const publicAfterEdit = await request(`/establishments?query=${encodeURIComponent("Owner One Store")}`);
+  assert.equal(publicAfterEdit.body.establishments.length, 0);
 });

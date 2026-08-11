@@ -63,9 +63,10 @@ const defaultEstablishments = [
     location: { type: "Point", coordinates: [121.0323, 14.6373] },
     ownerName: "Rafael Cruz",
     ownerTitle: "Restaurant owner",
+    ownerUserId: "demo-owner",
     acceptedPaymentMethods: ["Cash", "Card", "BDO"],
     verificationStatus: "pending",
-    isActive: true,
+    isActive: false,
     openNow: false,
     rating: 4.3,
     reviewCount: 48,
@@ -212,6 +213,8 @@ const defaultEstablishments = [
 const memory = {
   establishments: structuredClone(defaultEstablishments),
   users: [
+    { _id: "demo-user", name: "Mia Santos", email: "user@paynear.demo", role: "user", preferredPaymentMethod: "GCash", favoriteEstablishmentIds: ["demo-cafe-1"] },
+    { _id: "demo-owner", name: "Rafael Cruz", email: "owner@paynear.demo", role: "owner", preferredPaymentMethod: "Maya", favoriteEstablishmentIds: [] },
     { _id: "demo-admin", name: "PayNear Admin", email: "admin@paynear.demo", role: "admin", preferredPaymentMethod: "GCash", favoriteEstablishmentIds: [] },
   ],
   messages: [],
@@ -230,10 +233,14 @@ export const publicUser = (user) => ({
 
 function normalizeEstablishment(item) {
   const plain = item.toObject ? item.toObject() : item;
+  const safe = { ...plain };
+  delete safe.imageData;
+  delete safe.imageContentType;
   return {
-    ...plain,
+    ...safe,
     _id: String(plain._id),
     ownerUserId: plain.ownerUserId ? String(plain.ownerUserId) : null,
+    reviewedByUserId: plain.reviewedByUserId ? String(plain.reviewedByUserId) : null,
     distanceKm: plain.distanceKm ?? 1.4,
   };
 }
@@ -257,7 +264,7 @@ export async function listEstablishments(filters = {}) {
   const parsedLatitude = Number(latitude);
   const parsedLongitude = Number(longitude);
   if (dbReady()) {
-    const mongoFilter = { isActive: true, rating: { $gte: Number(minRating) || 0 } };
+    const mongoFilter = { isActive: true, verificationStatus: "verified", rating: { $gte: Number(minRating) || 0 } };
     if (query) mongoFilter.$or = [{ name: { $regex: query, $options: "i" } }, { category: { $regex: query, $options: "i" } }];
     if (method) mongoFilter.acceptedPaymentMethods = method;
     if (openNow) mongoFilter.openNow = true;
@@ -270,11 +277,12 @@ export async function listEstablishments(filters = {}) {
 
   const queryLower = query.toLowerCase();
   return memory.establishments
-    .filter((item) => item.isActive)
+    .filter((item) => item.isActive && item.verificationStatus === "verified")
     .filter((item) => !queryLower || item.name.toLowerCase().includes(queryLower) || item.category.toLowerCase().includes(queryLower))
     .filter((item) => !method || item.acceptedPaymentMethods.includes(method))
     .filter((item) => !openNow || item.openNow)
     .filter((item) => item.rating >= Number(minRating || 0))
+    .map(normalizeEstablishment)
     .map((item) => ({ ...item, distanceKm: hasLocation ? calculateDistanceKm(parsedLatitude, parsedLongitude, item.location) : item.distanceKm }))
     .filter((item) => item.distanceKm !== null && item.distanceKm <= Number(radiusKm || 5))
     .sort((a, b) => a.distanceKm - b.distanceKm || b.rating - a.rating);
@@ -286,30 +294,39 @@ export async function getEstablishment(id) {
     const record = await Establishment.findById(id).lean();
     return record ? normalizeEstablishment(record) : null;
   }
-  return memory.establishments.find((item) => item._id === id) || null;
+  const record = memory.establishments.find((item) => item._id === id);
+  return record ? normalizeEstablishment(record) : null;
 }
 
 export async function createEstablishment(input) {
+  const verificationStatus = input.verificationStatus || "pending";
+  const latitude = Number(input.latitude);
+  const longitude = Number(input.longitude);
   const record = {
     name: input.name,
     category: input.category,
     address: input.address,
     acceptedPaymentMethods: input.acceptedPaymentMethods || ["GCash", "Cash"],
     imageUrl: input.imageUrl || "",
-    verificationStatus: input.verificationStatus || "pending",
-    isActive: true,
+    verificationStatus,
+    isActive: verificationStatus === "verified" && input.isActive !== false,
+    submittedAt: input.submittedAt || new Date(),
+    reviewedAt: input.reviewedAt || null,
+    reviewedByUserId: input.reviewedByUserId || null,
+    reviewNotes: input.reviewNotes || "",
+    publishedAt: verificationStatus === "verified" ? (input.publishedAt || new Date()) : null,
     openNow: Boolean(input.openNow),
     rating: Number(input.rating || 4.5),
     reviewCount: 0,
     ownerName: input.ownerName || "Unassigned owner",
     ownerTitle: input.ownerTitle || "Listing contact",
     ownerUserId: input.ownerUserId || null,
-    location: { type: "Point", coordinates: [Number(input.longitude || 121.049), Number(input.latitude || 14.64)] },
+    location: { type: "Point", coordinates: [longitude, latitude] },
   };
   if (dbReady()) return normalizeEstablishment(await Establishment.create(record));
   const saved = { ...record, _id: `demo-${randomUUID()}`, distanceKm: Number(input.distanceKm || 1.5) };
   memory.establishments.unshift(saved);
-  return saved;
+  return normalizeEstablishment(saved);
 }
 
 export async function listOwnerEstablishments(ownerUserId) {
@@ -317,7 +334,19 @@ export async function listOwnerEstablishments(ownerUserId) {
     if (!mongoose.isValidObjectId(ownerUserId)) return [];
     return (await Establishment.find({ ownerUserId }).sort({ createdAt: -1 }).lean()).map(normalizeEstablishment);
   }
-  return memory.establishments.filter((item) => String(item.ownerUserId || "") === String(ownerUserId));
+  return memory.establishments
+    .filter((item) => String(item.ownerUserId || "") === String(ownerUserId))
+    .map(normalizeEstablishment);
+}
+
+export async function listAdminEstablishments(status = "") {
+  const allowedStatuses = new Set(["pending", "changes_requested", "verified", "rejected"]);
+  const filter = allowedStatuses.has(status) ? { verificationStatus: status } : {};
+  if (dbReady()) return (await Establishment.find(filter).sort({ submittedAt: -1, createdAt: -1 }).lean()).map(normalizeEstablishment);
+  return memory.establishments
+    .filter((item) => !filter.verificationStatus || item.verificationStatus === filter.verificationStatus)
+    .map(normalizeEstablishment)
+    .sort((a, b) => new Date(b.submittedAt || 0) - new Date(a.submittedAt || 0));
 }
 
 export async function updateEstablishment(id, updates) {
@@ -329,7 +358,20 @@ export async function updateEstablishment(id, updates) {
   const index = memory.establishments.findIndex((item) => item._id === id);
   if (index < 0) return null;
   memory.establishments[index] = { ...memory.establishments[index], ...updates };
-  return memory.establishments[index];
+  return normalizeEstablishment(memory.establishments[index]);
+}
+
+export async function getEstablishmentImage(id) {
+  if (dbReady()) {
+    if (!mongoose.isValidObjectId(id)) return null;
+    const record = await Establishment.findById(id).select("+imageData +imageContentType").lean();
+    if (!record?.imageData || !record?.imageContentType) return null;
+    return { data: record.imageData, contentType: record.imageContentType, updatedAt: record.updatedAt };
+  }
+  const record = memory.establishments.find((item) => item._id === id);
+  return record?.imageData && record?.imageContentType
+    ? { data: record.imageData, contentType: record.imageContentType, updatedAt: record.updatedAt }
+    : null;
 }
 
 export async function findUserByEmail(email) {

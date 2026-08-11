@@ -29,8 +29,10 @@ export const api = {
   gcashNotice(establishmentId, token) { return request("/notifications/gcash-demo", { method: "POST", body: JSON.stringify({ establishmentId }) }, token); },
   readNotification(id, token) { return request(`/notifications/${id}/read`, { method: "PATCH" }, token); },
   ownerListings(token) { return request("/owner/establishments", {}, token); },
+  adminListings(token, status = "") { return request(`/admin/establishments${status ? `?status=${encodeURIComponent(status)}` : ""}`, {}, token); },
   createListing(payload, token) { return request("/establishments", { method: "POST", body: JSON.stringify(payload) }, token); },
   updateListing(id, payload, token) { return request(`/establishments/${id}`, { method: "PUT", body: JSON.stringify(payload) }, token); },
+  reviewListing(id, payload, token) { return request(`/admin/establishments/${id}/review`, { method: "PATCH", body: JSON.stringify(payload) }, token); },
   uploadImage(id, file, token) {
     const form = new FormData();
     form.append("image", file);
