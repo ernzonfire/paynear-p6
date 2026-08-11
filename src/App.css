@@ -103,7 +103,7 @@
 .mobile-sheet-toggle { display: none; }
 
 @media (max-width: 720px) {
-  .discover-map-page { height: calc(100dvh - 112px); min-height: 520px; }
+  .discover-map-page { height: calc(100svh - 112px); min-height: 520px; }
   .map-control-panel {
     z-index: 1000;
     top: auto;
@@ -139,7 +139,7 @@
   .map-control-panel:not(.mobile-expanded) > :not(.mobile-sheet-toggle):not(.map-input-label) { display: none; }
   .map-control-panel .map-input-label { margin-top: 7px; color: transparent; font-size: 0; }
   .map-control-panel .map-input-label input { min-height: 44px; border-radius: 13px; padding: 11px 13px; color: var(--ink); background: #f8fbfb; font-size: 13px; box-shadow: inset 0 0 0 1px rgba(0, 124, 120, .025); }
-  .map-control-panel.mobile-expanded { max-height: min(76dvh, calc(100% - 24px)); overflow-y: auto; padding-bottom: 18px; }
+  .map-control-panel.mobile-expanded { max-height: min(76svh, calc(100% - 24px)); overflow-y: auto; padding-bottom: 18px; }
   .map-control-panel.mobile-expanded .mobile-sheet-toggle { position: sticky; top: -10px; z-index: 2; margin: 0 -3px; padding: 13px 3px 8px; background: rgba(255, 255, 255, .98); }
   .map-control-panel.mobile-expanded .map-panel-heading { display: flex; margin-top: 6px; }
   .map-control-panel.mobile-expanded .map-filter-group:nth-of-type(2) { display: grid; }
@@ -147,14 +147,17 @@
   .map-control-panel.mobile-expanded .map-ai-box { display: grid; }
   .map-control-panel.mobile-expanded .map-advanced-filters { display: block; }
   .discover-map-page .map-shell-fullscreen .map-overlay { top: 14px; right: 14px; bottom: auto; left: auto; max-width: 185px; }
-  .discover-map-page .leaflet-top.leaflet-left { top: auto; right: 14px; bottom: 174px; left: auto; }
+  .discover-map-page .leaflet-top.leaflet-left { top: auto; right: 14px; bottom: calc(230px + env(safe-area-inset-bottom)); left: auto; }
+  .discover-map-page .map-recenter-button { right: 14px; bottom: calc(174px + env(safe-area-inset-bottom)); }
   .map-payment-logo.has-logo { transform: scale(.86); transform-origin: bottom center; }
 }
 
 @media (max-width: 460px) {
-  .discover-map-page { height: calc(100dvh - 120px); }
+  .discover-map-page { height: calc(100svh - 120px); }
   .map-control-panel { right: 10px; bottom: max(10px, env(safe-area-inset-bottom)); left: 10px; width: auto; }
-  .map-control-panel.mobile-expanded { max-height: min(78dvh, calc(100% - 20px)); }
+  .map-control-panel.mobile-expanded { max-height: min(78svh, calc(100% - 20px)); }
+  .discover-map-page .leaflet-top.leaflet-left { bottom: calc(222px + env(safe-area-inset-bottom)); }
+  .discover-map-page .map-recenter-button { right: 10px; bottom: calc(166px + env(safe-area-inset-bottom)); }
 }
 @media (max-width: 520px) {
   .topbar { gap: 8px; padding: 10px 12px; }
@@ -172,6 +175,11 @@
 
 .radius-tooltip { border: 1px solid #007c78; border-radius: 999px; padding: 5px 8px; color: #005f5b; background: rgba(255, 255, 255, .96); box-shadow: 0 4px 12px rgba(0, 95, 91, .18); font-size: 10px; font-weight: 850; }
 .radius-tooltip::before { display: none; }
+
+.map-recenter-button { position: absolute; z-index: 650; right: 22px; bottom: 22px; width: 44px; height: 44px; display: grid; place-items: center; border: 1px solid rgba(0, 124, 120, .22); border-radius: 12px; color: var(--teal-dark); background: rgba(255, 255, 255, .97); box-shadow: 0 7px 20px rgba(22, 50, 77, .22); touch-action: manipulation; }
+.map-recenter-button:hover { border-color: var(--teal); background: var(--mint); }
+.map-recenter-button:focus-visible { outline: 3px solid rgba(0, 124, 120, .24); outline-offset: 2px; }
+.map-recenter-button svg { width: 23px; height: 23px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
 .place-map-marker { width: 46px !important; height: 46px !important; overflow: hidden; border: 3px solid #fff; border-radius: 50%; background: #e7f6f4; box-shadow: 0 5px 15px rgba(22, 50, 77, .3); }
 .place-map-marker img { display: block; width: 100%; height: 100%; object-fit: cover; }

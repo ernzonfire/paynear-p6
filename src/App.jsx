@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import L from "leaflet";
-import { Circle, MapContainer, Marker, Popup, TileLayer, Tooltip, useMap } from "react-leaflet";
+import { Circle, MapContainer, Marker, Popup, TileLayer, Tooltip, useMap, useMapEvents } from "react-leaflet";
 import { io } from "socket.io-client";
 import "leaflet/dist/leaflet.css";
 import { api, socketOrigin } from "./api.js";
@@ -70,33 +70,80 @@ function formatTime(value) {
   return new Intl.DateTimeFormat("en-PH", { hour: "numeric", minute: "2-digit" }).format(new Date(value));
 }
 
-function MapViewport({ center, radiusKm, liveLocation }) {
+function MapInteractionTracker({ followUserRef }) {
+  useMapEvents({
+    dragstart: () => { followUserRef.current = false; },
+  });
+  return null;
+}
+
+function MapViewport({ latitude, longitude, radiusKm, liveLocation, followUserRef }) {
   const map = useMap();
+  const hasCenteredOnUserRef = useRef(false);
+  const previousRadiusRef = useRef(radiusKm);
+
   useEffect(() => {
-    if (liveLocation) {
-      const searchArea = L.latLng(center[0], center[1]).toBounds(radiusKm * 2000);
-      const mapPadding = window.innerWidth > 720 ? { paddingTopLeft: [390, 70], paddingBottomRight: [70, 70] } : { padding: [24, 90] };
-      map.fitBounds(searchArea, { animate: true, duration: .55, maxZoom: 15, ...mapPadding });
+    if (!liveLocation) {
+      hasCenteredOnUserRef.current = false;
+      previousRadiusRef.current = radiusKm;
       return;
     }
-    map.flyTo(center, map.getZoom(), { animate: true, duration: .55 });
-  }, [center, liveLocation, map, radiusKm]);
+
+    const userLocation = L.latLng(latitude, longitude);
+    const radiusChanged = previousRadiusRef.current !== radiusKm;
+
+    if (!hasCenteredOnUserRef.current || radiusChanged) {
+      const searchArea = userLocation.toBounds(radiusKm * 2000);
+      const mapPadding = window.innerWidth > 720 ? { paddingTopLeft: [390, 70], paddingBottomRight: [70, 70] } : { padding: [24, 90] };
+      map.stop();
+      map.fitBounds(searchArea, { animate: hasCenteredOnUserRef.current, duration: .45, maxZoom: 15, ...mapPadding });
+      hasCenteredOnUserRef.current = true;
+      previousRadiusRef.current = radiusKm;
+      followUserRef.current = true;
+      return;
+    }
+
+    if (followUserRef.current && map.distance(map.getCenter(), userLocation) > 25) {
+      map.panTo(userLocation, { animate: true, duration: .35 });
+    }
+  }, [followUserRef, latitude, liveLocation, longitude, map, radiusKm]);
   return null;
 }
 
 function NearbyMap({ establishments, setSelected, userPosition, radiusKm, locationStatus, onOpenChat, fullScreen = false }) {
   const fallbackCenter = [14.64, 121.049];
   const center = userPosition ? [userPosition.latitude, userPosition.longitude] : fallbackCenter;
+  const mapRef = useRef(null);
+  const followUserRef = useRef(true);
+
+  function recenterOnUser() {
+    if (!userPosition || !mapRef.current) return;
+    const map = mapRef.current;
+    followUserRef.current = true;
+    map.stop();
+    map.flyTo(center, Math.max(map.getZoom(), 14), { animate: true, duration: .45 });
+  }
+
   return <div className={`map-shell ${fullScreen ? "map-shell-fullscreen" : ""}`}>
-    <MapContainer center={center} zoom={userPosition ? 14 : 13} scrollWheelZoom className="nearby-map">
+    <MapContainer ref={mapRef} center={center} zoom={userPosition ? 14 : 13} scrollWheelZoom className="nearby-map">
       <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>' url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" />
-      <MapViewport center={center} radiusKm={radiusKm} liveLocation={Boolean(userPosition)} />
+      <MapInteractionTracker followUserRef={followUserRef} />
+      <MapViewport
+        latitude={userPosition?.latitude ?? fallbackCenter[0]}
+        longitude={userPosition?.longitude ?? fallbackCenter[1]}
+        radiusKm={radiusKm}
+        liveLocation={Boolean(userPosition)}
+        followUserRef={followUserRef}
+      />
       {userPosition && <><Marker position={center} icon={userMapIcon}><Popup>You are here</Popup></Marker><Circle center={center} radius={radiusKm * 1000} pathOptions={{ color: "#007c78", fillColor: "#8bdbd3", fillOpacity: .2, weight: 3, opacity: .95 }}><Tooltip className="radius-tooltip" permanent direction="top" offset={[0, -16]} opacity={1}>{radiusKm} km search area</Tooltip></Circle></>}
       {establishments.filter((place) => place.location?.coordinates?.length === 2).map((place) => {
         const [longitude, latitude] = place.location.coordinates;
         return <Marker key={place._id} position={[latitude, longitude]} icon={storeMapIcon(place)} eventHandlers={{ click: () => setSelected(place) }}><Popup><div className="map-popup"><div className="map-popup-hero"><img src={place.imageUrl} alt={`${place.name} storefront`} /><div><strong>{place.name}</strong><span>{place.distanceKm} km - {place.category}</span><small>{place.ownerName || "Listing contact"}</small></div></div><div className="map-popup-payments">{place.acceptedPaymentMethods.slice(0, 3).map((method) => <PaymentLogo key={method} method={method} compact />)}</div><button onClick={() => { setSelected(place); onOpenChat(); }}>Message {(place.ownerName || place.name).split(" ")[0]}</button></div></Popup></Marker>;
       })}
     </MapContainer>
+    {userPosition && <button className="map-recenter-button" type="button" aria-label="Center map on my live location" title="Center on my location" onClick={recenterOnUser}>
+      <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></svg>
+    </button>}
     <div className="map-overlay"><strong>{userPosition ? `${radiusKm} km radius around you` : "Metro Manila marketplace view"}</strong><span>{locationStatus || "Use live location to show your exact search radius."}</span></div>
   </div>;
 }
@@ -137,6 +184,7 @@ function App() {
   const [adminListings, setAdminListings] = useState([]);
   const socketRef = useRef(null);
   const locationWatchRef = useRef(null);
+  const lastAcceptedLocationRef = useRef(null);
   const profileMenuRef = useRef(null);
 
   const alert = useCallback((message) => {
@@ -352,6 +400,12 @@ function App() {
     locationWatchRef.current = navigator.geolocation.watchPosition(
       ({ coords }) => {
         const location = { latitude: Number(coords.latitude.toFixed(6)), longitude: Number(coords.longitude.toFixed(6)) };
+        const previousLocation = lastAcceptedLocationRef.current;
+        if (previousLocation && L.latLng(previousLocation.latitude, previousLocation.longitude).distanceTo(L.latLng(location.latitude, location.longitude)) < 15) {
+          setLocationStatus("Live location is active. Your exact location is never shared with stores.");
+          return;
+        }
+        lastAcceptedLocationRef.current = location;
         setUserPosition(location);
         setFilters((current) => ({ ...current, ...location }));
         setLocationStatus("Live location is active. Your exact location is never shared with stores.");
