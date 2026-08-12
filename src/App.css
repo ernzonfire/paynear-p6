@@ -732,8 +732,8 @@
   .map-ai-box input { min-width: 0; }
   .map-sidebar-results .favorite-button span { display: none; }
   .discover-map-page .map-shell-fullscreen .map-overlay { display: none; }
-  .discover-map-page .leaflet-top.leaflet-left { bottom: 166px; }
-  .discover-map-page .map-recenter-button { right: 14px; bottom: 108px; }
+  .discover-map-page .leaflet-top.leaflet-left { bottom: 222px; }
+  .discover-map-page .map-recenter-button { right: 14px; bottom: 166px; }
 }
 
 @media (max-width: 520px) {
