@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import mongoose from "mongoose";
-import { Establishment, Message, Notification, User } from "./models.js";
+import { Establishment, Message, Notification, Review, User } from "./models.js";
 
 const defaultEstablishments = [
   {
@@ -215,6 +215,7 @@ const memory = {
   users: [],
   messages: [],
   notifications: [],
+  reviews: [],
 };
 
 export const dbReady = () => mongoose.connection.readyState === 1;
@@ -285,6 +286,18 @@ export async function listEstablishments(filters = {}) {
     .sort((a, b) => a.distanceKm - b.distanceKm || b.rating - a.rating);
 }
 
+export async function listFavoriteEstablishments(ids = []) {
+  const wanted = [...new Set(ids.map(String))];
+  if (!wanted.length) return [];
+  if (dbReady()) {
+    const validIds = wanted.filter((id) => mongoose.isValidObjectId(id));
+    if (!validIds.length) return [];
+    return (await Establishment.find({ _id: { $in: validIds }, isActive: true, verificationStatus: "verified" }).lean()).map(normalizeEstablishment);
+  }
+  const wantedSet = new Set(wanted);
+  return memory.establishments.filter((item) => wantedSet.has(String(item._id)) && item.isActive && item.verificationStatus === "verified").map(normalizeEstablishment);
+}
+
 export async function getEstablishment(id) {
   if (dbReady()) {
     if (!mongoose.isValidObjectId(id)) return null;
@@ -313,7 +326,7 @@ export async function createEstablishment(input) {
     reviewNotes: input.reviewNotes || "",
     publishedAt: verificationStatus === "verified" ? (input.publishedAt || new Date()) : null,
     openNow: Boolean(input.openNow),
-    rating: Number(input.rating || 4.5),
+    rating: input.rating === undefined ? 0 : Number(input.rating),
     reviewCount: 0,
     ownerName: input.ownerName || "Unassigned owner",
     ownerTitle: input.ownerTitle || "Listing contact",
@@ -396,12 +409,18 @@ export async function updateUser(id, updates) {
   return memory.users[index];
 }
 
-export async function getMessages(establishmentId) {
+export async function getMessages(establishmentId, conversationUserId) {
   if (dbReady()) {
-    if (!mongoose.isValidObjectId(establishmentId)) return [];
-    return (await Message.find({ establishmentId }).sort({ createdAt: 1 }).lean()).map((item) => ({ ...item, _id: String(item._id) }));
+    if (!mongoose.isValidObjectId(establishmentId) || !mongoose.isValidObjectId(conversationUserId)) return [];
+    return (await Message.find({ establishmentId, conversationUserId }).sort({ createdAt: 1 }).lean()).map((item) => ({
+      ...item,
+      _id: String(item._id),
+      establishmentId: String(item.establishmentId),
+      conversationUserId: String(item.conversationUserId),
+      senderUserId: String(item.senderUserId),
+    }));
   }
-  return memory.messages.filter((item) => item.establishmentId === establishmentId);
+  return memory.messages.filter((item) => item.establishmentId === establishmentId && item.conversationUserId === conversationUserId);
 }
 
 export async function createMessage(input) {
@@ -412,6 +431,131 @@ export async function createMessage(input) {
   const message = { _id: `message-${randomUUID()}`, createdAt: new Date().toISOString(), deliveredAt: new Date().toISOString(), ...input };
   memory.messages.push(message);
   return message;
+}
+
+export async function listConversations(user) {
+  let messages = [];
+  let establishments = [];
+  if (dbReady()) {
+    const userId = String(user._id);
+    if (!mongoose.isValidObjectId(userId)) return [];
+    if (user.role === "owner") {
+      establishments = (await Establishment.find({ ownerUserId: userId }).lean()).map(normalizeEstablishment);
+      const ids = establishments.map((item) => item._id);
+      messages = ids.length ? await Message.find({ establishmentId: { $in: ids } }).sort({ createdAt: -1 }).limit(500).lean() : [];
+    } else {
+      messages = await Message.find({ conversationUserId: userId }).sort({ createdAt: -1 }).limit(500).lean();
+      const ids = [...new Set(messages.map((item) => String(item.establishmentId)))];
+      establishments = ids.length ? (await Establishment.find({ _id: { $in: ids } }).lean()).map(normalizeEstablishment) : [];
+    }
+  } else if (user.role === "owner") {
+    establishments = memory.establishments.filter((item) => String(item.ownerUserId || "") === String(user._id)).map(normalizeEstablishment);
+    const ids = new Set(establishments.map((item) => item._id));
+    messages = memory.messages.filter((item) => ids.has(item.establishmentId)).toSorted((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  } else {
+    messages = memory.messages.filter((item) => item.conversationUserId === String(user._id)).toSorted((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const ids = new Set(messages.map((item) => item.establishmentId));
+    establishments = memory.establishments.filter((item) => ids.has(item._id)).map(normalizeEstablishment);
+  }
+
+  const establishmentById = new Map(establishments.map((item) => [String(item._id), item]));
+  const summaries = new Map();
+  for (const item of messages) {
+    const establishmentId = String(item.establishmentId);
+    const conversationUserId = String(item.conversationUserId);
+    const key = `${establishmentId}:${conversationUserId}`;
+    if (summaries.has(key)) continue;
+    const establishment = establishmentById.get(establishmentId);
+    if (!establishment) continue;
+    summaries.set(key, {
+      establishment,
+      conversationUserId,
+      counterpartName: user.role === "owner"
+        ? (messages.find((message) => String(message.establishmentId) === establishmentId && String(message.conversationUserId) === conversationUserId && message.senderRole === "user")?.senderName || "PayNear user")
+        : (establishment.ownerName || establishment.name),
+      lastMessage: item.body,
+      updatedAt: item.createdAt,
+    });
+  }
+  return [...summaries.values()].sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+}
+
+function normalizeReview(item) {
+  const plain = item.toObject ? item.toObject() : item;
+  return {
+    ...plain,
+    _id: String(plain._id),
+    establishmentId: String(plain.establishmentId),
+    userId: String(plain.userId),
+  };
+}
+
+async function refreshEstablishmentRating(establishmentId) {
+  const reviews = await listReviews(establishmentId);
+  const reviewCount = reviews.length;
+  const rating = reviewCount ? Math.round((reviews.reduce((total, item) => total + item.rating, 0) / reviewCount) * 10) / 10 : 0;
+  await updateEstablishment(establishmentId, { rating, reviewCount });
+  return { rating, reviewCount };
+}
+
+export async function listReviews(establishmentId) {
+  if (dbReady()) {
+    if (!mongoose.isValidObjectId(establishmentId)) return [];
+    return (await Review.find({ establishmentId }).sort({ updatedAt: -1 }).lean()).map(normalizeReview);
+  }
+  return memory.reviews
+    .filter((item) => item.establishmentId === establishmentId)
+    .map(normalizeReview)
+    .toSorted((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+}
+
+export async function getUserReview(establishmentId, userId) {
+  if (dbReady()) {
+    if (!mongoose.isValidObjectId(establishmentId) || !mongoose.isValidObjectId(userId)) return null;
+    const review = await Review.findOne({ establishmentId, userId }).lean();
+    return review ? normalizeReview(review) : null;
+  }
+  const review = memory.reviews.find((item) => item.establishmentId === establishmentId && item.userId === userId);
+  return review ? normalizeReview(review) : null;
+}
+
+export async function upsertReview(establishmentId, user, input) {
+  const record = {
+    establishmentId,
+    userId: String(user._id),
+    userName: user.name,
+    rating: Number(input.rating),
+    comment: input.comment,
+  };
+  let review;
+  if (dbReady()) {
+    review = await Review.findOneAndUpdate(
+      { establishmentId, userId: user._id },
+      record,
+      { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true },
+    ).lean();
+  } else {
+    const index = memory.reviews.findIndex((item) => item.establishmentId === establishmentId && item.userId === String(user._id));
+    const now = new Date().toISOString();
+    if (index >= 0) memory.reviews[index] = { ...memory.reviews[index], ...record, updatedAt: now };
+    else memory.reviews.push({ ...record, _id: `review-${randomUUID()}`, createdAt: now, updatedAt: now });
+    review = memory.reviews[index >= 0 ? index : memory.reviews.length - 1];
+  }
+  const aggregate = await refreshEstablishmentRating(establishmentId);
+  return { review: normalizeReview(review), ...aggregate };
+}
+
+export async function deleteReview(establishmentId, userId) {
+  let deleted;
+  if (dbReady()) {
+    if (!mongoose.isValidObjectId(establishmentId) || !mongoose.isValidObjectId(userId)) return null;
+    deleted = await Review.findOneAndDelete({ establishmentId, userId }).lean();
+  } else {
+    const index = memory.reviews.findIndex((item) => item.establishmentId === establishmentId && item.userId === userId);
+    deleted = index >= 0 ? memory.reviews.splice(index, 1)[0] : null;
+  }
+  if (!deleted) return null;
+  return refreshEstablishmentRating(establishmentId);
 }
 
 export async function getNotifications(userId) {

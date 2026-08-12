@@ -8,14 +8,16 @@ The current approved scope is documented in [`output/pdf/PayNear_Project_Proposa
 
 ## What is included
 
-- Facebook Marketplace-style nearby discovery: list or map view, payment-branded pins, a browser-location radius circle, plus place/category, distance, open-now, and rating filters.
+- Map-first nearby discovery with payment-branded pins, a live-location radius circle, a recenter control, manual map-point selection, and place/category, distance, open-now, and rating filters.
 - Recognizable e-wallet and bank identifiers for GCash, Maya, BPI, BDO, UnionBank, cards, cash, and bank transfers.
-- JWT registration and sign-in, saved places, and preferred payment method.
-- Socket.IO real-time Messenger-style establishment chat.
-- Business-owner registration and private store submission with address, map coordinates, payment methods, and a JPG/PNG/WebP storefront image.
+- JWT registration and sign-in, persistent saved places, and preferred payment method.
+- Stable, shareable place-detail pages with verified information and consumer-owned create/edit/delete reviews.
+- Socket.IO real-time consumer-to-owner chat with isolated conversations, inboxes, and persistent in-app notifications.
+- Business-owner registration and private store submission with address, an exact draggable map pin, payment methods, and a JPG/PNG/WebP storefront image.
+- Complete owner and administrator listing editors; sensitive owner edits return a published listing to review.
 - A protected administrator review queue for verifying, rejecting, requesting changes, publishing, and deactivating listings.
 - AI Place Assistant that turns a natural-language request into reviewable search filters. It has a safe local fallback and can call OpenAI when configured.
-- Express/Mongoose models for users, establishments, moderation audit fields, persistent store images, chat messages, and notifications. The API can use a non-persistent in-memory development store until MongoDB is connected.
+- Express/Mongoose models for users, establishments, moderation audit fields, persistent store images, reviews, isolated chat conversations, and notifications. The API can use a non-persistent in-memory development store until MongoDB is connected.
 
 Only establishments with both `verificationStatus: "verified"` and `isActive: true` are returned by the public API. Owner submissions and owner edits to verified business details return the listing to the private administrator review queue.
 
@@ -77,13 +79,18 @@ npm run test        # lint + Node API unit tests
 | GET | `/api/health` | API health and active data mode |
 | POST | `/api/auth/register`, `/api/auth/login` | Account access |
 | GET | `/api/establishments` | Advanced discovery filters |
+| GET | `/api/establishments/:id` | Public verified place details |
 | POST/PUT | `/api/establishments` | Owner/admin listing submission and permitted updates |
 | POST | `/api/establishments/:id/image` | Owner/admin image upload |
+| GET | `/api/establishments/:id/reviews` | Public consumer reviews |
+| GET/PUT/DELETE | `/api/establishments/:id/reviews/me` | Consumer-owned review read/write/delete |
+| GET | `/api/account/favorites` | Persistent saved-place details |
 | GET | `/api/owner/establishments` | Owner's private submissions |
 | GET | `/api/admin/establishments` | Protected administrator review queue |
 | PATCH | `/api/admin/establishments/:id/review` | Verify, reject, or request changes |
 | POST | `/api/ai/suggest` | AI-assisted filter suggestion |
-| GET | `/api/messages/:establishmentId` | Protected chat history |
+| GET | `/api/conversations` | Consumer/owner conversation inbox |
+| GET | `/api/messages/:establishmentId` | Authorized, consumer-isolated chat history |
 | GET/PATCH | `/api/notifications` | In-app notices and read state |
 
 ## Trello

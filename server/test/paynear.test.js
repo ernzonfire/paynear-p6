@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import http from "node:http";
 import test from "node:test";
 import { createApp } from "../src/app.js";
-import { createUser, listEstablishments } from "../src/demoStore.js";
+import { createEstablishment, createMessage, createUser, getMessages, listEstablishments } from "../src/demoStore.js";
 import { suggestFilters } from "../src/services/aiService.js";
 
 test("advanced filtering returns only matching open GCash places", async () => {
@@ -336,4 +336,144 @@ test("owner submissions stay private until an administrator verifies and publish
 
   const publicAfterEdit = await request(`/establishments?query=${encodeURIComponent("Owner One Store")}`);
   assert.equal(publicAfterEdit.body.establishments.length, 0);
+});
+
+test("consumer reviews are owned, editable, removable, and update aggregate ratings", async (context) => {
+  const { app } = createApp();
+  const server = http.createServer(app);
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  context.after(() => new Promise((resolve) => server.close(resolve)));
+  const baseUrl = `http://127.0.0.1:${server.address().port}/api`;
+  const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const request = async (path, options = {}) => {
+    const response = await fetch(`${baseUrl}${path}`, {
+      ...options,
+      headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    });
+    return { response, body: await response.json() };
+  };
+  const registration = await request("/auth/register", {
+    method: "POST",
+    body: JSON.stringify({ name: "Review Consumer", email: `review-${suffix}@paynear.test`, password: "testing123", role: "user" }),
+  });
+  const token = registration.body.token;
+  const listing = await createEstablishment({
+    name: `Review Cafe ${suffix}`,
+    category: "Cafe",
+    address: "Test Street, Cebu City",
+    latitude: 10.3157,
+    longitude: 123.8854,
+    acceptedPaymentMethods: ["GCash"],
+    verificationStatus: "verified",
+    isActive: true,
+    openNow: true,
+  });
+
+  const publicDetail = await request(`/establishments/${listing._id}`);
+  assert.equal(publicDetail.response.status, 200);
+
+  const created = await request(`/establishments/${listing._id}/reviews/me`, {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ rating: 5, comment: "Clear payment signs and helpful staff." }),
+  });
+  assert.equal(created.response.status, 200);
+  assert.equal(created.body.rating, 5);
+  assert.equal(created.body.reviewCount, 1);
+
+  const updated = await request(`/establishments/${listing._id}/reviews/me`, {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ rating: 4, comment: "GCash worked and the listing was accurate." }),
+  });
+  assert.equal(updated.response.status, 200);
+  assert.equal(updated.body.rating, 4);
+  assert.equal(updated.body.reviewCount, 1);
+
+  const publicReviews = await request(`/establishments/${listing._id}/reviews`);
+  assert.equal(publicReviews.response.status, 200);
+  assert.equal(publicReviews.body.reviews.length, 1);
+  assert.equal(publicReviews.body.reviews[0].userId, undefined);
+
+  const removed = await request(`/establishments/${listing._id}/reviews/me`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  assert.equal(removed.response.status, 200);
+  assert.equal(removed.body.reviewCount, 0);
+  assert.equal(removed.body.rating, 0);
+});
+
+test("conversation history is isolated per consumer and owners receive an inbox", async (context) => {
+  const { app } = createApp();
+  const server = http.createServer(app);
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  context.after(() => new Promise((resolve) => server.close(resolve)));
+  const baseUrl = `http://127.0.0.1:${server.address().port}/api`;
+  const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const register = async (name, role) => {
+    const response = await fetch(`${baseUrl}/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, email: `${name.toLowerCase().replaceAll(" ", "-")}-${suffix}@paynear.test`, password: "testing123", role }),
+    });
+    return response.json();
+  };
+  const owner = await register("Inbox Owner", "owner");
+  const firstConsumer = await register("First Consumer", "user");
+  const secondConsumer = await register("Second Consumer", "user");
+  const listing = await createEstablishment({
+    name: `Inbox Store ${suffix}`,
+    category: "Grocery",
+    address: "Test Avenue, Quezon City",
+    latitude: 14.64,
+    longitude: 121.049,
+    acceptedPaymentMethods: ["GCash", "Cash"],
+    verificationStatus: "verified",
+    isActive: true,
+    ownerName: owner.user.name,
+    ownerUserId: owner.user.id,
+    openNow: true,
+  });
+  await createMessage({ establishmentId: listing._id, conversationUserId: firstConsumer.user.id, senderUserId: firstConsumer.user.id, senderName: firstConsumer.user.name, senderRole: "user", body: "Do you accept GCash today?" });
+  await createMessage({ establishmentId: listing._id, conversationUserId: secondConsumer.user.id, senderUserId: secondConsumer.user.id, senderName: secondConsumer.user.name, senderRole: "user", body: "Are you open late?" });
+
+  const firstHistory = await getMessages(listing._id, firstConsumer.user.id);
+  assert.equal(firstHistory.length, 1);
+  assert.equal(firstHistory[0].body, "Do you accept GCash today?");
+
+  const firstInboxResponse = await fetch(`${baseUrl}/conversations`, { headers: { Authorization: `Bearer ${firstConsumer.token}` } });
+  const firstInbox = await firstInboxResponse.json();
+  assert.equal(firstInbox.conversations.length, 1);
+  assert.equal(firstInbox.conversations[0].conversationUserId, firstConsumer.user.id);
+
+  const ownerInboxResponse = await fetch(`${baseUrl}/conversations`, { headers: { Authorization: `Bearer ${owner.token}` } });
+  const ownerInbox = await ownerInboxResponse.json();
+  assert.equal(ownerInbox.conversations.length, 2);
+
+  const forbiddenCrossConversation = await fetch(`${baseUrl}/messages/${listing._id}?conversationUserId=${secondConsumer.user.id}`, { headers: { Authorization: `Bearer ${firstConsumer.token}` } });
+  const firstConsumerBody = await forbiddenCrossConversation.json();
+  assert.equal(firstConsumerBody.messages.length, 1);
+  assert.equal(firstConsumerBody.messages[0].conversationUserId, firstConsumer.user.id);
+});
+
+test("favorite listings persist independently of current discovery filters", async (context) => {
+  const { app } = createApp();
+  const server = http.createServer(app);
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  context.after(() => new Promise((resolve) => server.close(resolve)));
+  const baseUrl = `http://127.0.0.1:${server.address().port}/api`;
+  const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const registrationResponse = await fetch(`${baseUrl}/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "Saved Consumer", email: `saved-${suffix}@paynear.test`, password: "testing123", role: "user" }),
+  });
+  const registration = await registrationResponse.json();
+  const listing = (await listEstablishments({ query: "Brew & Go Cafe" }))[0];
+  const favoriteResponse = await fetch(`${baseUrl}/account/favorites/${listing._id}`, { method: "POST", headers: { Authorization: `Bearer ${registration.token}` } });
+  assert.equal(favoriteResponse.status, 200);
+  const savedResponse = await fetch(`${baseUrl}/account/favorites`, { headers: { Authorization: `Bearer ${registration.token}` } });
+  const saved = await savedResponse.json();
+  assert.ok(saved.establishments.some((item) => item._id === listing._id));
 });

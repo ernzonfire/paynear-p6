@@ -1,0 +1,5 @@
+{
+  "rewrites": [
+    { "source": "/places/:id", "destination": "/index.html" }
+  ]
+}

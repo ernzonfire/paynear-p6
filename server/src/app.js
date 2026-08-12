@@ -10,18 +10,24 @@ import {
   createMessage,
   createNotification,
   createUser,
+  deleteReview,
   dbReady,
   findUserByEmail,
   getEstablishment,
   getEstablishmentImage,
   getMessages,
   getNotifications,
+  getUserReview,
   getUser,
+  listConversations,
   listEstablishments,
+  listFavoriteEstablishments,
   listAdminEstablishments,
   listOwnerEstablishments,
   publicUser,
   readNotification,
+  listReviews,
+  upsertReview,
   updateEstablishment,
   updateUser,
 } from "./demoStore.js";
@@ -74,14 +80,19 @@ function publicEstablishment(establishment) {
   return listing;
 }
 
-function isPublished(establishment) {
-  return establishment?.verificationStatus === "verified" && establishment?.isActive === true;
+function publicReview(review) {
+  return {
+    _id: review._id,
+    userName: review.userName,
+    rating: review.rating,
+    comment: review.comment,
+    createdAt: review.createdAt,
+    updatedAt: review.updatedAt,
+  };
 }
 
-function canAccessEstablishment(user, establishment) {
-  return isPublished(establishment)
-    || user?.role === "admin"
-    || (user?.role === "owner" && String(establishment?.ownerUserId || "") === String(user?._id || ""));
+function isPublished(establishment) {
+  return establishment?.verificationStatus === "verified" && establishment?.isActive === true;
 }
 
 function listingImageUrl(request, id) {
@@ -222,6 +233,15 @@ export function createApp() {
     }
   });
 
+  app.get("/api/account/favorites", requireAuth, requirePasswordChanged, async (request, response, next) => {
+    try {
+      const establishments = await listFavoriteEstablishments(request.user.favoriteEstablishmentIds || []);
+      return response.json({ establishments: establishments.map(publicEstablishment) });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
   app.get("/api/establishments", async (request, response, next) => {
     try {
       const establishments = await listEstablishments({
@@ -260,6 +280,57 @@ export function createApp() {
         "Content-Type": image.contentType,
       });
       return response.send(image.data);
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  app.get("/api/establishments/:id/reviews", async (request, response, next) => {
+    try {
+      const establishment = await getEstablishment(request.params.id);
+      if (!isPublished(establishment)) return response.status(404).json({ message: "Establishment not found." });
+      const reviews = await listReviews(request.params.id);
+      return response.json({ reviews: reviews.map(publicReview) });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  app.get("/api/establishments/:id/reviews/me", requireAuth, requirePasswordChanged, async (request, response, next) => {
+    try {
+      const establishment = await getEstablishment(request.params.id);
+      if (!isPublished(establishment)) return response.status(404).json({ message: "Establishment not found." });
+      const review = await getUserReview(request.params.id, String(request.user._id));
+      return response.json({ review: review ? publicReview(review) : null });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  app.put("/api/establishments/:id/reviews/me", requireAuth, requirePasswordChanged, async (request, response, next) => {
+    try {
+      if (request.user.role !== "user") return response.status(403).json({ message: "Consumer accounts can review verified establishments." });
+      const establishment = await getEstablishment(request.params.id);
+      if (!isPublished(establishment)) return response.status(404).json({ message: "Establishment not found." });
+      const rating = Number(request.body.rating);
+      const comment = String(request.body.comment || "").trim();
+      if (!Number.isInteger(rating) || rating < 1 || rating > 5 || comment.length < 3 || comment.length > 700) {
+        return response.status(400).json({ message: "Choose 1 to 5 stars and write a review between 3 and 700 characters." });
+      }
+      const result = await upsertReview(request.params.id, request.user, { rating, comment });
+      return response.json({ review: publicReview(result.review), rating: result.rating, reviewCount: result.reviewCount });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
+  app.delete("/api/establishments/:id/reviews/me", requireAuth, requirePasswordChanged, async (request, response, next) => {
+    try {
+      const establishment = await getEstablishment(request.params.id);
+      if (!isPublished(establishment)) return response.status(404).json({ message: "Establishment not found." });
+      const aggregate = await deleteReview(request.params.id, String(request.user._id));
+      if (!aggregate) return response.status(404).json({ message: "Review not found." });
+      return response.json(aggregate);
     } catch (error) {
       return next(error);
     }
@@ -326,7 +397,10 @@ export function createApp() {
       const adminAllowedFields = [...ownerAllowedFields, "ownerName", "ownerTitle", "isActive"];
       const allowedFields = request.user.role === "owner" ? ownerAllowedFields : adminAllowedFields;
       const updates = Object.fromEntries(Object.entries(request.body).filter(([key]) => allowedFields.includes(key)));
+      if (updates.name !== undefined && !String(updates.name).trim()) return response.status(400).json({ message: "Name is required." });
+      if (updates.address !== undefined && !String(updates.address).trim()) return response.status(400).json({ message: "Address is required." });
       if (updates.acceptedPaymentMethods) updates.acceptedPaymentMethods = toMethods(updates.acceptedPaymentMethods);
+      if (request.body.acceptedPaymentMethods !== undefined && updates.acceptedPaymentMethods.length === 0) return response.status(400).json({ message: "Choose at least one accepted payment method." });
       if (updates.category && !ALLOWED_CATEGORIES.includes(updates.category)) return response.status(400).json({ message: "Choose a valid category." });
       if (updates.latitude !== undefined || updates.longitude !== undefined) {
         const currentCoordinates = existing.location?.coordinates || [];
@@ -446,11 +520,23 @@ export function createApp() {
     }
   });
 
+  app.get("/api/conversations", requireAuth, requirePasswordChanged, async (request, response, next) => {
+    try {
+      if (!new Set(["user", "owner"]).has(request.user.role)) return response.status(403).json({ message: "Consumer or owner access is required." });
+      return response.json({ conversations: await listConversations(request.user) });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
   app.get("/api/messages/:establishmentId", requireAuth, requirePasswordChanged, async (request, response, next) => {
     try {
       const establishment = await getEstablishment(request.params.establishmentId);
-      if (!establishment || !canAccessEstablishment(request.user, establishment)) return response.status(404).json({ message: "Establishment not found." });
-      return response.json({ messages: await getMessages(request.params.establishmentId) });
+      const isOwner = request.user.role === "owner" && String(establishment?.ownerUserId || "") === String(request.user._id);
+      if (!establishment || (request.user.role === "user" ? !isPublished(establishment) : !isOwner)) return response.status(404).json({ message: "Establishment not found." });
+      const conversationUserId = request.user.role === "user" ? String(request.user._id) : String(request.query.conversationUserId || "");
+      if (!conversationUserId) return response.status(400).json({ message: "Choose a conversation first." });
+      return response.json({ messages: await getMessages(request.params.establishmentId, conversationUserId) });
     } catch (error) {
       return next(error);
     }
@@ -502,28 +588,51 @@ export function attachSocketServer(io, jwtSecret = JWT_SECRET) {
   });
 
   io.on("connection", (socket) => {
-    socket.on("join-establishment", async ({ establishmentId }, callback = () => {}) => {
+    socket.join(`user:${String(socket.user._id)}`);
+
+    socket.on("join-establishment", async ({ establishmentId, conversationUserId: requestedUserId }, callback = () => {}) => {
       const establishment = await getEstablishment(establishmentId);
-      if (!establishment || !canAccessEstablishment(socket.user, establishment)) return callback({ ok: false, message: "Establishment not found." });
-      socket.join(`establishment:${establishmentId}`);
-      return callback({ ok: true });
+      const isOwner = socket.user.role === "owner" && String(establishment?.ownerUserId || "") === String(socket.user._id);
+      const isConsumer = socket.user.role === "user" && isPublished(establishment);
+      if (!establishment || (!isOwner && !isConsumer)) return callback({ ok: false, message: "Establishment not found." });
+      const conversationUserId = isConsumer ? String(socket.user._id) : String(requestedUserId || "");
+      if (!conversationUserId) return callback({ ok: false, message: "Choose a conversation first." });
+      socket.join(`establishment:${establishmentId}:user:${conversationUserId}`);
+      return callback({ ok: true, conversationUserId });
     });
 
-    socket.on("send-message", async ({ establishmentId, body }, callback = () => {}) => {
+    socket.on("send-message", async ({ establishmentId, conversationUserId: requestedUserId, body }, callback = () => {}) => {
       const cleanBody = String(body || "").trim();
       const establishment = await getEstablishment(establishmentId);
-      if (!establishment || !canAccessEstablishment(socket.user, establishment) || !cleanBody || cleanBody.length > 500) {
+      const isListingOwner = socket.user.role === "owner" && String(establishment?.ownerUserId || "") === String(socket.user._id);
+      const isConsumer = socket.user.role === "user" && isPublished(establishment);
+      if (!establishment || (!isListingOwner && !isConsumer) || !cleanBody || cleanBody.length > 500) {
         return callback({ ok: false, message: "Enter a message up to 500 characters." });
       }
-      const isListingOwner = socket.user.role === "owner" && String(establishment.ownerUserId || "") === String(socket.user._id);
+      const conversationUserId = isConsumer ? String(socket.user._id) : String(requestedUserId || "");
+      if (!conversationUserId) return callback({ ok: false, message: "Choose a conversation first." });
       const message = await createMessage({
         establishmentId: String(establishment._id),
+        conversationUserId,
         senderUserId: String(socket.user._id),
         senderName: isListingOwner ? (establishment.ownerName || socket.user.name) : socket.user.name,
         senderRole: isListingOwner ? "establishment" : "user",
         body: cleanBody,
       });
-      io.to(`establishment:${establishmentId}`).emit("message:new", message);
+      const room = `establishment:${establishmentId}:user:${conversationUserId}`;
+      io.to(room).emit("message:new", message);
+      const recipientUserId = isListingOwner ? conversationUserId : String(establishment.ownerUserId || "");
+      if (recipientUserId) {
+        const notice = await createNotification({
+          userId: recipientUserId,
+          establishmentId: String(establishment._id),
+          conversationUserId,
+          type: "chat",
+          title: `New message about ${establishment.name}`,
+          message: `${message.senderName}: ${cleanBody.slice(0, 120)}`,
+        });
+        io.to(`user:${recipientUserId}`).emit("notification:new", notice);
+      }
       return callback({ ok: true, message });
     });
 

@@ -7,6 +7,7 @@ import {
   BellOff,
   Bookmark,
   Building2,
+  ArrowLeft,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
@@ -23,16 +24,21 @@ import {
   LogIn,
   LogOut,
   MapPin,
+  MapPinned,
   MessageCircle,
   MessageSquareWarning,
   Plus,
+  Pencil,
   RefreshCw,
+  Save,
   Search,
   Send,
+  Share2,
   ShieldCheck,
   Sparkles,
   Star,
   Store,
+  Trash2,
   UserRound,
   UserRoundPlus,
   X,
@@ -62,6 +68,8 @@ const initialListing = {
   acceptedPaymentMethods: ["GCash", "Cash"],
   openNow: true,
 };
+
+const routePlaceId = () => window.location.pathname.match(/^\/places\/([^/]+)\/?$/)?.[1] || "";
 
 const PAYMENT_BRANDS = {
   GCash: { mark: "G", className: "gcash", logoSrc: "https://commons.wikimedia.org/wiki/Special:FilePath/GCash_logo.svg" },
@@ -115,6 +123,15 @@ function formatTime(value) {
 function MapInteractionTracker({ followUserRef }) {
   useMapEvents({
     dragstart: () => { followUserRef.current = false; },
+  });
+  return null;
+}
+
+function ManualSearchLocationPicker({ enabled, onChoose }) {
+  useMapEvents({
+    click: ({ latlng }) => {
+      if (enabled) onChoose({ latitude: Number(latlng.lat.toFixed(6)), longitude: Number(latlng.lng.toFixed(6)) });
+    },
   });
   return null;
 }
@@ -201,7 +218,7 @@ function ListingLocationPicker({ latitude, longitude, onChange }) {
   </div>;
 }
 
-function NearbyMap({ establishments, setSelected, userPosition, radiusKm, locationStatus, onOpenChat, fullScreen = false }) {
+function NearbyMap({ establishments, setSelected, userPosition, radiusKm, locationStatus, onOpenChat, onOpenDetails, manualPinMode = false, onManualLocation, fullScreen = false }) {
   const fallbackCenter = [14.64, 121.049];
   const center = userPosition ? [userPosition.latitude, userPosition.longitude] : fallbackCenter;
   const mapRef = useRef(null);
@@ -216,9 +233,10 @@ function NearbyMap({ establishments, setSelected, userPosition, radiusKm, locati
   }
 
   return <div className={`map-shell ${fullScreen ? "map-shell-fullscreen" : ""}`}>
-    <MapContainer ref={mapRef} center={center} zoom={userPosition ? 14 : 13} scrollWheelZoom className="nearby-map">
+    <MapContainer ref={mapRef} center={center} zoom={userPosition ? 14 : 13} scrollWheelZoom className={`nearby-map ${manualPinMode ? "manual-pin-active" : ""}`}>
       <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>' url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" />
       <MapInteractionTracker followUserRef={followUserRef} />
+      <ManualSearchLocationPicker enabled={manualPinMode} onChoose={onManualLocation} />
       <MapViewport
         latitude={userPosition?.latitude ?? fallbackCenter[0]}
         longitude={userPosition?.longitude ?? fallbackCenter[1]}
@@ -229,11 +247,11 @@ function NearbyMap({ establishments, setSelected, userPosition, radiusKm, locati
       {userPosition && <><Marker position={center} icon={userMapIcon} title="Your live location" alt="Your live location"><Popup>You are here</Popup></Marker><Circle center={center} radius={radiusKm * 1000} pathOptions={{ color: "#007c78", fillColor: "#8bdbd3", fillOpacity: .2, weight: 3, opacity: .95 }}><Tooltip className="radius-tooltip" permanent direction="top" offset={[0, -16]} opacity={1}>{radiusKm} km search area</Tooltip></Circle></>}
       {establishments.filter((place) => place.location?.coordinates?.length === 2).map((place) => {
         const [longitude, latitude] = place.location.coordinates;
-        return <Marker key={place._id} position={[latitude, longitude]} icon={storeMapIcon(place)} title={`${place.name}, ${place.distanceKm} kilometers away`} alt={`${place.name} map pin`} eventHandlers={{ click: () => setSelected(place) }}><Popup><div className="map-popup"><div className="map-popup-hero"><img src={place.imageUrl || payNearEmblem} onError={handleStoreImageError} alt={`${place.name} storefront`} /><div><strong>{place.name}</strong><span>{place.distanceKm} km - {place.category}</span><small>{place.ownerName || "Listing contact"}</small></div></div><div className="map-popup-payments">{place.acceptedPaymentMethods.slice(0, 3).map((method) => <PaymentLogo key={method} method={method} compact />)}</div><button onClick={() => { setSelected(place); onOpenChat(); }}><MessageCircle aria-hidden="true" />Message {(place.ownerName || place.name).split(" ")[0]}</button></div></Popup></Marker>;
+        return <Marker key={place._id} position={[latitude, longitude]} icon={storeMapIcon(place)} title={`${place.name}, ${place.distanceKm} kilometers away`} alt={`${place.name} map pin`} eventHandlers={{ click: () => setSelected(place) }}><Popup><div className="map-popup"><div className="map-popup-hero"><img src={place.imageUrl || payNearEmblem} onError={handleStoreImageError} alt={`${place.name} storefront`} /><div><strong>{place.name}</strong><span>{place.distanceKm} km - {place.category}</span><small>{place.ownerName || "Listing contact"}</small></div></div><div className="map-popup-payments">{place.acceptedPaymentMethods.slice(0, 3).map((method) => <PaymentLogo key={method} method={method} compact />)}</div><div className="map-popup-actions"><button onClick={() => onOpenDetails(place)}><Eye aria-hidden="true" />View details</button><button onClick={() => { setSelected(place); onOpenChat(place); }}><MessageCircle aria-hidden="true" />Message</button></div></div></Popup></Marker>;
       })}
     </MapContainer>
     {userPosition && <button className="map-recenter-button" type="button" aria-label="Center map on my live location" title="Center on my location" onClick={recenterOnUser}><LocateFixed aria-hidden="true" /></button>}
-    <div className="map-overlay"><strong>{userPosition ? `${radiusKm} km radius around you` : "Metro Manila marketplace view"}</strong><span>{locationStatus || "Use live location to show your exact search radius."}</span></div>
+    <div className="map-overlay"><strong>{manualPinMode ? "Tap the map to set your search point" : userPosition ? `${radiusKm} km radius around you` : "Metro Manila marketplace view"}</strong><span>{locationStatus || "Use live location or choose a point manually."}</span></div>
   </div>;
 }
 
@@ -241,7 +259,7 @@ function App() {
   const [filters, setFilters] = useState(initialFilters);
   const [establishments, setEstablishments] = useState([]);
   const [selected, setSelected] = useState(null);
-  const [activePage, setActivePage] = useState("discover");
+  const [activePage, setActivePage] = useState(() => routePlaceId() ? "details" : "discover");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [aiPrompt, setAiPrompt] = useState("");
@@ -249,6 +267,7 @@ function App() {
   const [aiProvider, setAiProvider] = useState("");
   const [userPosition, setUserPosition] = useState(null);
   const [locationStatus, setLocationStatus] = useState("");
+  const [manualPinMode, setManualPinMode] = useState(false);
   const [token, setToken] = useState(() => localStorage.getItem("paynear-token") || "");
   const [user, setUser] = useState(null);
   const [sessionChecking, setSessionChecking] = useState(() => Boolean(localStorage.getItem("paynear-token")));
@@ -265,6 +284,8 @@ function App() {
   const [showProfile, setShowProfile] = useState(false);
   const [toast, setToast] = useState("");
   const [messages, setMessages] = useState([]);
+  const [conversations, setConversations] = useState([]);
+  const [activeConversationUserId, setActiveConversationUserId] = useState("");
   const [messageDraft, setMessageDraft] = useState("");
   const [chatStatus, setChatStatus] = useState("");
   const [listingForm, setListingForm] = useState(initialListing);
@@ -274,6 +295,12 @@ function App() {
   const [listingActionBusy, setListingActionBusy] = useState("");
   const [ownerListings, setOwnerListings] = useState([]);
   const [adminListings, setAdminListings] = useState([]);
+  const [favoritePlaces, setFavoritePlaces] = useState([]);
+  const [reviews, setReviews] = useState([]);
+  const [myReview, setMyReview] = useState(null);
+  const [reviewForm, setReviewForm] = useState({ rating: 5, comment: "" });
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(() => Boolean(routePlaceId()));
   const socketRef = useRef(null);
   const locationWatchRef = useRef(null);
   const lastAcceptedLocationRef = useRef(null);
@@ -284,6 +311,32 @@ function App() {
     setToast(message);
     window.setTimeout(() => setToast(""), 3600);
   }, []);
+
+  const loadPlaceDetails = useCallback(async (id, updateRoute = false) => {
+    if (!id) return;
+    if (updateRoute && window.location.pathname !== `/places/${id}`) window.history.pushState({}, "", `/places/${id}`);
+    setDetailLoading(true);
+    try {
+      const [{ establishment }, { reviews: placeReviews }] = await Promise.all([api.getEstablishment(id), api.reviews(id)]);
+      setSelected(establishment);
+      setReviews(placeReviews);
+      setActivePage("details");
+      if (token) {
+        const { review } = await api.myReview(id, token).catch(() => ({ review: null }));
+        setMyReview(review);
+        setReviewForm(review ? { rating: review.rating, comment: review.comment } : { rating: 5, comment: "" });
+      } else {
+        setMyReview(null);
+        setReviewForm({ rating: 5, comment: "" });
+      }
+    } catch (requestError) {
+      alert(requestError.message || "This verified place is no longer available.");
+      setActivePage("discover");
+      if (window.location.pathname !== "/") window.history.replaceState({}, "", "/");
+    } finally {
+      setDetailLoading(false);
+    }
+  }, [alert, token]);
 
   const loadResults = useCallback(async () => {
     resultsRequestRef.current.controller?.abort();
@@ -296,7 +349,7 @@ function App() {
       const { establishments: results } = await api.listEstablishments(filters, { signal: controller.signal });
       if (resultsRequestRef.current.id !== requestId) return;
       setEstablishments(results);
-      setSelected((current) => results.find((item) => item._id === current?._id) || results[0] || null);
+      setSelected((current) => activePage === "details" ? current : results.find((item) => item._id === current?._id) || results[0] || null);
     } catch (requestError) {
       if (requestError.name === "AbortError" || resultsRequestRef.current.id !== requestId) return;
       setError(requestError.message || "We could not load verified places. Please try again.");
@@ -304,7 +357,7 @@ function App() {
     } finally {
       if (resultsRequestRef.current.id === requestId) setLoading(false);
     }
-  }, [filters]);
+  }, [activePage, filters]);
 
   const loadOwnerListings = useCallback(async () => {
     if (!token) return;
@@ -325,6 +378,43 @@ function App() {
       setAdminListings([]);
     }
   }, [token]);
+
+  const loadConversations = useCallback(async () => {
+    if (!token || !new Set(["user", "owner"]).has(user?.role)) return [];
+    try {
+      const { conversations: items } = await api.conversations(token);
+      setConversations(items);
+      if (user.role === "owner" && items.length && !activeConversationUserId) {
+        setSelected(items[0].establishment);
+        setActiveConversationUserId(items[0].conversationUserId);
+      }
+      return items;
+    } catch {
+      setConversations([]);
+      return [];
+    }
+  }, [activeConversationUserId, token, user?.role]);
+
+  const loadFavoritePlaces = useCallback(async () => {
+    if (!token || !user) { setFavoritePlaces([]); return; }
+    try {
+      const { establishments: places } = await api.favorites(token);
+      setFavoritePlaces(places);
+    } catch {
+      setFavoritePlaces([]);
+    }
+  }, [token, user]);
+
+  useEffect(() => {
+    const openRoute = () => {
+      const id = routePlaceId();
+      if (id) loadPlaceDetails(id);
+      else setActivePage((current) => current === "details" ? "discover" : current);
+    };
+    openRoute();
+    window.addEventListener("popstate", openRoute);
+    return () => window.removeEventListener("popstate", openRoute);
+  }, [loadPlaceDetails]);
 
   useEffect(() => {
     const delay = filters.query.trim() ? 250 : 0;
@@ -386,24 +476,36 @@ function App() {
   }, [loadAdminListings, user?.mustChangePassword, user?.role]);
 
   useEffect(() => {
+    if (activePage === "chat" && user && !user.mustChangePassword) loadConversations();
+  }, [activePage, loadConversations, user]);
+
+  useEffect(() => {
+    if (user && !user.mustChangePassword) loadFavoritePlaces();
+    else setFavoritePlaces([]);
+  }, [loadFavoritePlaces, user]);
+
+  useEffect(() => {
     if (activePage !== "chat" || !selected || !token || !user || user.mustChangePassword) return undefined;
     let mounted = true;
     setChatStatus("Connecting secure chat...");
-    api.messages(selected._id, token).then(({ messages: history }) => {
+    const conversationUserId = user.role === "user" ? user.id : activeConversationUserId;
+    if (!conversationUserId) { setMessages([]); setChatStatus("Choose a conversation."); return undefined; }
+    api.messages(selected._id, token, conversationUserId).then(({ messages: history }) => {
       if (mounted) setMessages(history);
     }).catch((requestError) => mounted && setChatStatus(requestError.message));
 
     const socket = io(socketOrigin, { auth: { token } });
     socketRef.current = socket;
     socket.on("connect", () => {
-      socket.emit("join-establishment", { establishmentId: selected._id }, (result) => {
+      socket.emit("join-establishment", { establishmentId: selected._id, conversationUserId }, (result) => {
         if (mounted) setChatStatus(result.ok ? "Live chat connected" : result.message);
       });
     });
     socket.on("connect_error", (socketError) => mounted && setChatStatus(socketError.message || "Chat connection failed."));
     socket.on("message:new", (message) => {
-      if (String(message.establishmentId) === String(selected._id)) {
+      if (String(message.establishmentId) === String(selected._id) && String(message.conversationUserId) === String(conversationUserId)) {
         setMessages((current) => current.some((item) => item._id === message._id) ? current : [...current, message]);
+        loadConversations();
       }
     });
     socket.on("notification:new", (notice) => {
@@ -412,11 +514,11 @@ function App() {
     });
 
     return () => { mounted = false; socket.disconnect(); socketRef.current = null; };
-  }, [activePage, alert, selected, token, user]);
+  }, [activeConversationUserId, activePage, alert, loadConversations, selected, token, user]);
 
   const unreadCount = notifications.filter((notice) => !notice.isRead).length;
   const favoriteIds = user?.favoriteEstablishmentIds || [];
-  const savedPlaces = establishments.filter((item) => favoriteIds.includes(item._id));
+  const savedPlaces = favoritePlaces;
 
   function logout(message = "You are signed out.") {
     const notice = typeof message === "string" ? message : "You are signed out.";
@@ -428,11 +530,13 @@ function App() {
     setNotifications([]);
     setOwnerListings([]);
     setAdminListings([]);
+    setFavoritePlaces([]);
     setPasswordForm({ password: "", confirmPassword: "" });
     setPasswordError("");
     setShowNotifications(false);
     setShowProfile(false);
     setActivePage("discover");
+    window.history.replaceState({}, "", "/");
     alert(notice);
   }
 
@@ -516,6 +620,7 @@ function App() {
       return;
     }
     if (locationWatchRef.current !== null) navigator.geolocation.clearWatch(locationWatchRef.current);
+    setManualPinMode(false);
     setLocationStatus("Getting your live location...");
     locationWatchRef.current = navigator.geolocation.watchPosition(
       ({ coords }) => {
@@ -540,11 +645,34 @@ function App() {
     );
   }
 
+  function setManualSearchLocation(location) {
+    if (locationWatchRef.current !== null) {
+      navigator.geolocation?.clearWatch(locationWatchRef.current);
+      locationWatchRef.current = null;
+    }
+    lastAcceptedLocationRef.current = location;
+    setUserPosition(location);
+    setFilters((current) => ({ ...current, ...location }));
+    setManualPinMode(false);
+    setLocationStatus("Manual search point active. Tap Set on map to move it.");
+  }
+
+  function applyManualCoordinates() {
+    const latitude = Number(filters.latitude);
+    const longitude = Number(filters.longitude);
+    if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+      alert("Enter valid latitude and longitude coordinates.");
+      return;
+    }
+    setManualSearchLocation({ latitude, longitude });
+  }
+
   async function toggleFavorite(id) {
     if (!token) { setAuthOpen(true); setAuthMode("login"); return; }
     try {
       const result = await api.favorite(id, token);
       setUser(result.user);
+      await loadFavoritePlaces();
     } catch (requestError) { alert(requestError.message); }
   }
 
@@ -565,9 +693,34 @@ function App() {
     } catch (requestError) { alert(requestError.message); }
   }
 
-  function openChat() {
+  async function openNotification(notice) {
+    await markRead(notice._id);
+    setShowNotifications(false);
+    if (notice.type !== "chat") return;
+    let conversation = conversations.find((item) => String(item.establishment._id) === String(notice.establishmentId)
+      && (!notice.conversationUserId || String(item.conversationUserId) === String(notice.conversationUserId)));
+    if (!conversation) {
+      const refreshed = await loadConversations();
+      conversation = refreshed.find((item) => String(item.establishment._id) === String(notice.establishmentId)
+        && (!notice.conversationUserId || String(item.conversationUserId) === String(notice.conversationUserId)));
+    }
+    if (conversation) chooseConversation(conversation);
+    else setActivePage("chat");
+  }
+
+  function openChat(place = selected, conversationUserId = "") {
     if (!token) { setAuthOpen(true); setAuthMode("login"); return; }
     if (user?.mustChangePassword) { setActivePage("change-password"); return; }
+    if (place && (user?.role === "user" || String(place.ownerUserId || "") === String(user?.id))) setSelected(place);
+    else if (user?.role === "owner" && !conversationUserId) setSelected(null);
+    setActiveConversationUserId(user?.role === "user" ? user.id : conversationUserId);
+    if (window.location.pathname !== "/") window.history.pushState({}, "", "/");
+    setActivePage("chat");
+  }
+
+  function chooseConversation(conversation) {
+    setSelected(conversation.establishment);
+    setActiveConversationUserId(conversation.conversationUserId);
     setActivePage("chat");
   }
 
@@ -575,10 +728,61 @@ function App() {
     event.preventDefault();
     const body = messageDraft.trim();
     if (!body || !socketRef.current || !selected) return;
-    socketRef.current.emit("send-message", { establishmentId: selected._id, body }, (result) => {
+    const conversationUserId = user?.role === "user" ? user.id : activeConversationUserId;
+    socketRef.current.emit("send-message", { establishmentId: selected._id, conversationUserId, body }, (result) => {
       if (!result.ok) { alert(result.message); return; }
       setMessageDraft("");
+      loadConversations();
     });
+  }
+
+  function openPlaceDetails(place) {
+    loadPlaceDetails(place._id, true);
+  }
+
+  async function sharePlace() {
+    if (!selected) return;
+    const url = `${window.location.origin}/places/${selected._id}`;
+    try {
+      if (navigator.share) await navigator.share({ title: `${selected.name} on PayNear`, text: `View verified payment methods and store details for ${selected.name}.`, url });
+      else {
+        await navigator.clipboard.writeText(url);
+        alert("Place link copied.");
+      }
+    } catch (shareError) {
+      if (shareError.name !== "AbortError") alert("Could not share this link. Please try again.");
+    }
+  }
+
+  async function submitReview(event) {
+    event.preventDefault();
+    if (!token) { setAuthMode("login"); setAuthOpen(true); return; }
+    if (!selected || reviewBusy) return;
+    setReviewBusy(true);
+    try {
+      const result = await api.saveReview(selected._id, reviewForm, token);
+      setMyReview(result.review);
+      setSelected((current) => ({ ...current, rating: result.rating, reviewCount: result.reviewCount }));
+      const { reviews: placeReviews } = await api.reviews(selected._id);
+      setReviews(placeReviews);
+      alert(myReview ? "Review updated." : "Review published.");
+    } catch (requestError) { alert(requestError.message); }
+    finally { setReviewBusy(false); }
+  }
+
+  async function removeReview() {
+    if (!selected || reviewBusy) return;
+    setReviewBusy(true);
+    try {
+      const aggregate = await api.deleteReview(selected._id, token);
+      setMyReview(null);
+      setReviewForm({ rating: 5, comment: "" });
+      setSelected((current) => ({ ...current, ...aggregate }));
+      const { reviews: placeReviews } = await api.reviews(selected._id);
+      setReviews(placeReviews);
+      alert("Review removed.");
+    } catch (requestError) { alert(requestError.message); }
+    finally { setReviewBusy(false); }
   }
 
   async function createListing(event) {
@@ -677,6 +881,7 @@ function App() {
   }
 
   function selectPage(page) {
+    if (window.location.pathname !== "/") window.history.pushState({}, "", "/");
     setActivePage(user?.mustChangePassword ? "change-password" : page);
     setShowNotifications(false);
     setShowProfile(false);
@@ -689,7 +894,7 @@ function App() {
         {!user?.mustChangePassword && <nav className="nav-links" aria-label="Primary navigation">
           <button className={activePage === "discover" ? "active" : ""} onClick={() => selectPage("discover")}><Compass aria-hidden="true" /><span>Discover</span></button>
           <button className={activePage === "saved" ? "active" : ""} onClick={() => selectPage("saved")}><Bookmark aria-hidden="true" /><span>Saved</span></button>
-          <button className={activePage === "chat" ? "active" : ""} onClick={openChat}><MessageCircle aria-hidden="true" /><span>Messages</span></button>
+          {user?.role !== "admin" && <button className={activePage === "chat" ? "active" : ""} onClick={() => openChat(null)}><MessageCircle aria-hidden="true" /><span>Messages</span></button>}
           {user?.role === "owner" && <button className={activePage === "owner" ? "active" : ""} onClick={() => selectPage("owner")}><Store aria-hidden="true" /><span>My business</span></button>}
           {user?.role === "admin" && <button className={activePage === "admin" ? "active" : ""} onClick={() => selectPage("admin")}><ShieldCheck aria-hidden="true" /><span>Admin</span></button>}
         </nav>}
@@ -698,7 +903,7 @@ function App() {
             <button className="icon-button" aria-label="Notifications" aria-expanded={showNotifications} onClick={() => { setShowNotifications((value) => !value); setShowProfile(false); }}><Bell aria-hidden="true" />{unreadCount > 0 && <span className="notice-count">{unreadCount}</span>}</button>
             {showNotifications && <div className="notification-popover">
               <div className="popover-heading"><strong><Bell aria-hidden="true" />Updates</strong><span>{unreadCount} unread</span></div>
-              {notifications.length === 0 ? <p className="empty-note"><BellOff aria-hidden="true" />No updates yet.</p> : notifications.slice(0, 5).map((notice) => <button key={notice._id} className={`notice-item ${notice.isRead ? "read" : ""}`} onClick={() => markRead(notice._id)}><strong>{notice.title}</strong><span>{notice.message}</span></button>)}
+              {notifications.length === 0 ? <p className="empty-note"><BellOff aria-hidden="true" />No updates yet.</p> : notifications.slice(0, 5).map((notice) => <button key={notice._id} className={`notice-item ${notice.isRead ? "read" : ""}`} onClick={() => openNotification(notice)}><strong>{notice.title}</strong><span>{notice.message}</span></button>)}
             </div>}
           </div>}
           {sessionChecking ? <span className="session-checking" role="status">Checking session…</span> : user ? <div className="profile-wrap" ref={profileMenuRef}>
@@ -718,11 +923,13 @@ function App() {
         {activePage === "discover" && <DiscoverPage
           filters={filters} setFilters={setFilters} aiPrompt={aiPrompt} setAiPrompt={setAiPrompt} applyAiSuggestion={applyAiSuggestion}
           aiMessage={aiMessage} aiProvider={aiProvider} establishments={establishments} selected={selected} setSelected={setSelected}
-          loading={loading} error={error} favoriteIds={favoriteIds} toggleFavorite={toggleFavorite} openChat={openChat}
+          loading={loading} error={error} favoriteIds={favoriteIds} toggleFavorite={toggleFavorite} openChat={openChat} openDetails={openPlaceDetails}
           userPosition={userPosition} requestNearbyLocation={requestNearbyLocation} locationStatus={locationStatus} retryResults={loadResults}
+          manualPinMode={manualPinMode} setManualPinMode={setManualPinMode} setManualLocation={setManualSearchLocation} applyManualCoordinates={applyManualCoordinates}
         />}
-        {activePage === "saved" && <SavedPage user={user} savedPlaces={savedPlaces} selected={selected} setSelected={setSelected} toggleFavorite={toggleFavorite} updatePreference={updatePreference} openDiscover={() => selectPage("discover")} requestSignIn={() => { setAuthMode("login"); setAuthOpen(true); }} />}
-        {activePage === "chat" && <ChatPage user={user} selected={selected} messages={messages} draft={messageDraft} setDraft={setMessageDraft} sendMessage={sendMessage} status={chatStatus} openDiscover={() => selectPage("discover")} requestSignIn={() => { setAuthMode("login"); setAuthOpen(true); }} />}
+        {activePage === "saved" && <SavedPage user={user} savedPlaces={savedPlaces} selected={selected} openDetails={openPlaceDetails} toggleFavorite={toggleFavorite} updatePreference={updatePreference} openDiscover={() => selectPage("discover")} requestSignIn={() => { setAuthMode("login"); setAuthOpen(true); }} />}
+        {activePage === "details" && <PlaceDetailPage user={user} place={selected} loading={detailLoading} reviews={reviews} myReview={myReview} reviewForm={reviewForm} setReviewForm={setReviewForm} submitReview={submitReview} removeReview={removeReview} reviewBusy={reviewBusy} toggleFavorite={toggleFavorite} favorite={selected ? favoriteIds.includes(selected._id) : false} openChat={openChat} sharePlace={sharePlace} goBack={() => selectPage("discover")} requestSignIn={() => { setAuthMode("login"); setAuthOpen(true); }} />}
+        {activePage === "chat" && <ChatPage user={user} selected={selected} conversations={conversations} activeConversationUserId={activeConversationUserId} chooseConversation={chooseConversation} messages={messages} draft={messageDraft} setDraft={setMessageDraft} sendMessage={sendMessage} status={chatStatus} openDiscover={() => selectPage("discover")} requestSignIn={() => { setAuthMode("login"); setAuthOpen(true); }} />}
         {activePage === "owner" && <OwnerPage
           user={user} listingForm={listingForm} setListingForm={setListingForm} createListing={createListing}
           listingImage={listingImage} setListingImage={setListingImage} useCurrentLocation={useCurrentLocationForListing}
@@ -765,7 +972,7 @@ function PasswordChangePage({ user, form, setForm, submit, error, logout, submit
   </section>;
 }
 
-function DiscoverPage({ filters, setFilters, aiPrompt, setAiPrompt, applyAiSuggestion, aiMessage, aiProvider, establishments, selected, setSelected, loading, error, favoriteIds, toggleFavorite, openChat, userPosition, requestNearbyLocation, locationStatus, retryResults }) {
+function DiscoverPage({ filters, setFilters, aiPrompt, setAiPrompt, applyAiSuggestion, aiMessage, aiProvider, establishments, selected, setSelected, loading, error, favoriteIds, toggleFavorite, openChat, openDetails, userPosition, requestNearbyLocation, locationStatus, retryResults, manualPinMode, setManualPinMode, setManualLocation, applyManualCoordinates }) {
   const clearFilters = () => setFilters({
     ...initialFilters,
     latitude: userPosition?.latitude ?? "",
@@ -775,7 +982,7 @@ function DiscoverPage({ filters, setFilters, aiPrompt, setAiPrompt, applyAiSugge
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   return <section className="discover-map-page map-mode">
     <h1 className="sr-only">Find nearby places</h1>
-    <NearbyMap establishments={establishments} setSelected={setSelected} userPosition={userPosition} radiusKm={filters.radiusKm} locationStatus={locationStatus} onOpenChat={openChat} fullScreen />
+    <NearbyMap establishments={establishments} setSelected={setSelected} userPosition={userPosition} radiusKm={filters.radiusKm} locationStatus={locationStatus} onOpenChat={openChat} onOpenDetails={openDetails} manualPinMode={manualPinMode} onManualLocation={setManualLocation} fullScreen />
 
     <aside className={`map-control-panel ${mobilePanelOpen ? "mobile-expanded" : ""}`} aria-label="Find nearby places">
       <button className="mobile-sheet-toggle" type="button" aria-expanded={mobilePanelOpen} onClick={() => setMobilePanelOpen((value) => !value)}>
@@ -788,15 +995,15 @@ function DiscoverPage({ filters, setFilters, aiPrompt, setAiPrompt, applyAiSugge
       <div className="map-filter-group"><span>What are you looking for?</span><div className="chip-row">{CATEGORIES.map((category) => <button key={category} className={filters.query === category ? "chip selected" : "chip"} onClick={() => setFilters((current) => ({ ...current, query: category === "All" ? "" : category }))}>{category}</button>)}</div></div>
       <div className="map-payment-section"><div className="map-payment-heading"><div><span>Payment preference <em>Optional</em></span><p>Choose one only when it matters to you.</p></div></div><div className="payment-preference-carousel">{PAYMENT_FILTER_OPTIONS.map((option) => <PaymentPreference key={option.method || "all"} option={option} selected={filters.method === option.method} onSelect={() => setFilters((current) => ({ ...current, method: option.method }))} />)}</div></div>
       <label className="range-label map-range"><span>Search radius <strong>{filters.radiusKm} km</strong></span><input type="range" min="1" max="10" value={filters.radiusKm} onChange={(event) => setFilters((current) => ({ ...current, radiusKm: Number(event.target.value) }))} /></label>
-      <button className="location-button map-location-button" onClick={requestNearbyLocation}><LocateFixed aria-hidden="true" />{userPosition ? "Live location active" : "Use my location"}</button>
-      <details className="map-advanced-filters"><summary><ListFilter aria-hidden="true" />More filters</summary><label className="switch"><input type="checkbox" checked={filters.openNow} onChange={(event) => setFilters((current) => ({ ...current, openNow: event.target.checked }))} /><span>Open now only</span></label><label>Minimum rating<select value={filters.minRating} onChange={(event) => setFilters((current) => ({ ...current, minRating: Number(event.target.value) }))}><option value="0">Any rating</option><option value="4">4.0 and up</option><option value="4.5">4.5 and up</option></select></label></details>
+      <div className="location-actions"><button className="location-button map-location-button" onClick={requestNearbyLocation}><LocateFixed aria-hidden="true" />{locationStatus.startsWith("Live") ? "Live location active" : "Use my location"}</button><button className={`location-button manual-location-button ${manualPinMode ? "active" : ""}`} type="button" onClick={() => setManualPinMode((value) => !value)}><MapPinned aria-hidden="true" />{manualPinMode ? "Tap the map" : "Set on map"}</button></div>
+      <details className="map-advanced-filters"><summary><ListFilter aria-hidden="true" />More filters</summary><label className="switch"><input type="checkbox" checked={filters.openNow} onChange={(event) => setFilters((current) => ({ ...current, openNow: event.target.checked }))} /><span>Open now only</span></label><label>Minimum rating<select value={filters.minRating} onChange={(event) => setFilters((current) => ({ ...current, minRating: Number(event.target.value) }))}><option value="0">Any rating</option><option value="4">4.0 and up</option><option value="4.5">4.5 and up</option></select></label><div className="manual-coordinate-fields"><span>Manual coordinates</span><div><input aria-label="Search latitude" type="number" step="any" min="-90" max="90" value={filters.latitude} onChange={(event) => setFilters((current) => ({ ...current, latitude: event.target.value }))} placeholder="Latitude" /><input aria-label="Search longitude" type="number" step="any" min="-180" max="180" value={filters.longitude} onChange={(event) => setFilters((current) => ({ ...current, longitude: event.target.value }))} placeholder="Longitude" /></div><button className="button outline" type="button" onClick={applyManualCoordinates}><MapPin aria-hidden="true" />Apply coordinates</button></div></details>
       <form className="map-ai-box" onSubmit={applyAiSuggestion}><span className="ai-spark"><Sparkles aria-hidden="true" /></span><input aria-label="Smart search" value={aiPrompt} onChange={(event) => setAiPrompt(event.target.value)} placeholder="Try “cafe with GCash, open now”" /><button className="button primary" type="submit">Apply</button></form>
       {aiMessage && <div className="ai-result"><strong>{aiProvider}</strong><span>{aiMessage}</span></div>}
       {error && <div className="error-box" role="alert"><span><CircleAlert aria-hidden="true" />{error}</span><button className="text-button" type="button" onClick={retryResults}><RefreshCw aria-hidden="true" />Retry</button></div>}
       <div className="map-panel-footer"><span>{loading ? "Looking around..." : `${establishments.length} places nearby`}</span></div>
       <div className="map-sidebar-results"><div className="map-sidebar-results-heading"><span className="eyebrow">RESULTS</span><span>{establishments.length ? "Select a place to inspect its exact map location." : "Only administrator-verified stores are published here."}</span></div><div className="map-sidebar-results-list">
         {!loading && !error && establishments.length === 0 && <div className="map-empty-state"><MapPin aria-hidden="true" /><strong>{hasActiveFilters ? "No verified places match." : "No verified places published yet."}</strong><span>{hasActiveFilters ? "Clear the filters or increase the search radius." : "Business submissions remain private until a PayNear administrator verifies and publishes them."}</span>{hasActiveFilters && <button className="text-button" type="button" onClick={clearFilters}><RefreshCw aria-hidden="true" />Clear filters</button>}</div>}
-        {!loading && establishments.map((place) => <PlaceCard key={place._id} place={place} selected={selected?._id === place._id} onClick={() => { setSelected(place); setMobilePanelOpen(false); }} favorite={favoriteIds.includes(place._id)} toggleFavorite={toggleFavorite} />)}
+        {!loading && establishments.map((place) => <PlaceCard key={place._id} place={place} selected={selected?._id === place._id} onClick={() => { openDetails(place); setMobilePanelOpen(false); }} favorite={favoriteIds.includes(place._id)} toggleFavorite={toggleFavorite} />)}
       </div></div>
     </aside>
   </section>;
@@ -806,15 +1013,24 @@ function PlaceCard({ place, selected, onClick, favorite, toggleFavorite }) {
   return <article className={`place-card ${selected ? "selected" : ""}`}><button className="card-main" onClick={onClick}><img src={place.imageUrl || payNearEmblem} onError={handleStoreImageError} alt={`${place.name} storefront`} /><div className="card-copy"><div className="card-topline"><span>{place.category}</span><span>{place.distanceKm} km</span></div><h3>{place.name}</h3><p>{place.address}</p><div className="card-footer"><span className="rating"><Star aria-hidden="true" />{place.rating}</span>{place.openNow ? <span className="open">Open now</span> : <span className="closed">Closed</span>}<span className="card-payment-logos">{place.acceptedPaymentMethods.slice(0, 3).map((method) => <PaymentLogo key={method} method={method} compact />)}</span></div></div></button><button className={`favorite-button ${favorite ? "saved" : ""}`} aria-label={`${favorite ? "Remove" : "Save"} ${place.name}`} onClick={() => toggleFavorite(place._id)}><Heart aria-hidden="true" fill={favorite ? "currentColor" : "none"} /><span>{favorite ? "Saved" : "Save"}</span></button></article>;
 }
 
-function SavedPage({ user, savedPlaces, selected, setSelected, toggleFavorite, updatePreference, openDiscover, requestSignIn }) {
+function SavedPage({ user, savedPlaces, selected, openDetails, toggleFavorite, updatePreference, openDiscover, requestSignIn }) {
   if (!user) return <section className="simple-page"><span className="page-icon"><Bookmark aria-hidden="true" /></span><span className="eyebrow">YOUR LIST</span><h1>Save places for later.</h1><p>Sign in to keep favorite places and a payment preference across sessions.</p><button className="button primary" onClick={requestSignIn}><LogIn aria-hidden="true" />Sign in to save places</button></section>;
-  return <section className="saved-page"><div className="page-heading"><span className="eyebrow"><Bookmark aria-hidden="true" />YOUR LIST</span><h1>Saved places</h1><p>Your search can start with {user.preferredPaymentMethod} when you are ready.</p></div><div className="saved-layout"><div className="saved-list">{savedPlaces.length ? savedPlaces.map((place) => <PlaceCard key={place._id} place={place} selected={selected?._id === place._id} onClick={() => setSelected(place)} favorite toggleFavorite={toggleFavorite} />) : <div className="empty-state"><Bookmark aria-hidden="true" /><h2>Nothing saved yet.</h2><p>Keep useful stores here for a faster next search.</p><button className="button primary" onClick={openDiscover}><Compass aria-hidden="true" />Discover places</button></div>}</div><div className="preference-card"><span className="eyebrow">PREFERENCE</span><h2>Payment method</h2><p>Set your default for a more relevant discovery screen.</p><select className="preference-select" aria-label="Preferred payment method" value={user.preferredPaymentMethod} onChange={(event) => updatePreference(event.target.value)}>{METHODS.map((method) => <option key={method}>{method}</option>)}</select></div></div></section>;
+  return <section className="saved-page"><div className="page-heading"><span className="eyebrow"><Bookmark aria-hidden="true" />YOUR LIST</span><h1>Saved places</h1><p>Your search can start with {user.preferredPaymentMethod} when you are ready.</p></div><div className="saved-layout"><div className="saved-list">{savedPlaces.length ? savedPlaces.map((place) => <PlaceCard key={place._id} place={place} selected={selected?._id === place._id} onClick={() => openDetails(place)} favorite toggleFavorite={toggleFavorite} />) : <div className="empty-state"><Bookmark aria-hidden="true" /><h2>Nothing saved yet.</h2><p>Keep useful stores here for a faster next search.</p><button className="button primary" onClick={openDiscover}><Compass aria-hidden="true" />Discover places</button></div>}</div><div className="preference-card"><span className="eyebrow">PREFERENCE</span><h2>Payment method</h2><p>Set your default for a more relevant discovery screen.</p><select className="preference-select" aria-label="Preferred payment method" value={user.preferredPaymentMethod} onChange={(event) => updatePreference(event.target.value)}>{METHODS.map((method) => <option key={method}>{method}</option>)}</select></div></div></section>;
 }
 
-function ChatPage({ user, selected, messages, draft, setDraft, sendMessage, status, openDiscover, requestSignIn }) {
+function PlaceDetailPage({ user, place, loading, reviews, myReview, reviewForm, setReviewForm, submitReview, removeReview, reviewBusy, toggleFavorite, favorite, openChat, sharePlace, goBack, requestSignIn }) {
+  if (loading || !place) return <section className="simple-page"><RefreshCw className="spin" aria-hidden="true" /><h1>Loading verified place…</h1></section>;
+  return <section className="place-detail-page">
+    <button className="text-button detail-back" type="button" onClick={goBack}><ArrowLeft aria-hidden="true" />Back to Discover</button>
+    <div className="place-detail-hero"><img src={place.imageUrl || payNearEmblem} onError={handleStoreImageError} alt={`${place.name} storefront`} /><div className="place-detail-copy"><span className="verify-badge"><CheckCircle2 aria-hidden="true" />Verified by PayNear</span><span className="eyebrow">{place.category}</span><h1>{place.name}</h1><p><MapPin aria-hidden="true" />{place.address}</p><div className="place-detail-stats"><span><Star aria-hidden="true" />{place.reviewCount ? `${place.rating} from ${place.reviewCount} review${place.reviewCount === 1 ? "" : "s"}` : "No reviews yet"}</span><span className={place.openNow ? "open" : "closed"}><Clock3 aria-hidden="true" />{place.openNow ? "Open now" : "Closed"}</span>{Number.isFinite(place.distanceKm) && <span>{place.distanceKm} km away</span>}</div><div className="place-detail-actions"><button className="button primary" onClick={() => openChat(place)}><MessageCircle aria-hidden="true" />Message store</button><button className={`button outline ${favorite ? "saved" : ""}`} onClick={() => toggleFavorite(place._id)}><Heart aria-hidden="true" fill={favorite ? "currentColor" : "none"} />{favorite ? "Saved" : "Save"}</button><button className="button outline" onClick={sharePlace}><Share2 aria-hidden="true" />Share</button></div></div></div>
+    <div className="place-detail-grid"><article className="place-info-card"><h2>Accepted payments</h2><p>These methods are reported by the store and verified through PayNear moderation.</p><div className="detail-payment-grid">{place.acceptedPaymentMethods.map((method) => <PaymentLogo key={method} method={method} />)}</div><h2>Store contact</h2><p><strong>{place.ownerName || "Store representative"}</strong><br />{place.ownerTitle || "Listing contact"}</p></article><article className="reviews-card"><div className="reviews-heading"><div><span className="eyebrow">COMMUNITY REVIEWS</span><h2>What people say</h2></div><span>{reviews.length}</span></div>{user?.role === "user" ? <form className="review-form" onSubmit={submitReview}><label>Your rating<select value={reviewForm.rating} onChange={(event) => setReviewForm((current) => ({ ...current, rating: Number(event.target.value) }))}>{[5, 4, 3, 2, 1].map((rating) => <option key={rating} value={rating}>{rating} star{rating === 1 ? "" : "s"}</option>)}</select></label><label>Your review<textarea required minLength="3" maxLength="700" value={reviewForm.comment} onChange={(event) => setReviewForm((current) => ({ ...current, comment: event.target.value }))} placeholder="Share a useful, honest experience" /></label><div className="review-form-actions"><button className="button primary" disabled={reviewBusy}><Save aria-hidden="true" />{reviewBusy ? "Saving…" : myReview ? "Update review" : "Publish review"}</button>{myReview && <button className="text-button danger" type="button" disabled={reviewBusy} onClick={removeReview}><Trash2 aria-hidden="true" />Remove</button>}</div></form> : !user ? <div className="review-signin"><p>Sign in with a consumer account to write a review.</p><button className="button outline" onClick={requestSignIn}><LogIn aria-hidden="true" />Sign in</button></div> : null}<div className="review-list">{reviews.length ? reviews.map((review) => <article key={review._id} className="user-review"><div><strong>{review.userName}</strong><span><Star aria-hidden="true" />{review.rating}</span></div><p>{review.comment}</p><small>{new Intl.DateTimeFormat("en-PH", { dateStyle: "medium" }).format(new Date(review.updatedAt || review.createdAt))}</small></article>) : <div className="empty-state compact"><Star aria-hidden="true" /><h3>Be the first to review.</h3><p>Helpful reviews make nearby decisions easier.</p></div>}</div></article></div>
+  </section>;
+}
+
+function ChatPage({ user, selected, conversations, activeConversationUserId, chooseConversation, messages, draft, setDraft, sendMessage, status, openDiscover, requestSignIn }) {
   if (!user) return <section className="simple-page"><span className="page-icon"><MessageCircle aria-hidden="true" /></span><span className="eyebrow">STORE MESSAGES</span><h1>Ask before you go.</h1><p>Sign in to confirm payment options or store details with a verified establishment.</p><button className="button primary" onClick={requestSignIn}><LogIn aria-hidden="true" />Sign in to chat</button></section>;
-  if (!selected) return <section className="simple-page"><span className="page-icon"><MapPin aria-hidden="true" /></span><h1>Choose a place first.</h1><p>Return to Discover, choose a verified listing, then start a conversation.</p><button className="button primary" onClick={openDiscover}><Compass aria-hidden="true" />Discover places</button></section>;
-  return <section className="chat-page"><div className="chat-card"><div className="chat-header"><img src={selected.imageUrl || payNearEmblem} onError={handleStoreImageError} alt="" /><div><span className="eyebrow"><MessageCircle aria-hidden="true" />CHAT WITH {selected.ownerName || selected.name}</span><h1>{selected.name}</h1><p>{selected.ownerName ? `${selected.ownerName} · ${selected.ownerTitle || "Listing contact"} — ${status}` : status}</p></div></div><div className="messages">{messages.length === 0 ? <div className="chat-empty"><MessageCircle aria-hidden="true" />Start by asking whether GCash is accepted today.</div> : messages.map((message) => <div key={message._id} className={`message ${message.senderRole === "establishment" ? "from-store" : "from-user"}`}><span>{message.senderRole === "establishment" ? selected.ownerName || selected.name : "You"}</span><p>{message.body}</p><small>{formatTime(message.createdAt)}</small></div>)}</div><form className="message-form" onSubmit={sendMessage}><input aria-label="Message" value={draft} onChange={(event) => setDraft(event.target.value)} maxLength="500" placeholder="Type a message..." /><button className="button primary"><Send aria-hidden="true" />Send</button></form></div></section>;
+  if (!selected) return <section className="simple-page"><span className="page-icon"><MapPin aria-hidden="true" /></span><h1>{user.role === "owner" ? "No customer conversations yet." : "Choose a place first."}</h1><p>{user.role === "owner" ? "New customer messages will appear here." : "Return to Discover, choose a verified listing, then start a conversation."}</p>{user.role === "user" && <button className="button primary" onClick={openDiscover}><Compass aria-hidden="true" />Discover places</button>}</section>;
+  return <section className="chat-page chat-workspace"><div className="conversation-list"><div><span className="eyebrow">MESSAGES</span><h2>Conversations</h2></div>{conversations.length ? conversations.map((conversation) => <button key={`${conversation.establishment._id}:${conversation.conversationUserId}`} className={String(conversation.establishment._id) === String(selected._id) && String(conversation.conversationUserId) === String(activeConversationUserId || user.id) ? "active" : ""} onClick={() => chooseConversation(conversation)}><img src={conversation.establishment.imageUrl || payNearEmblem} onError={handleStoreImageError} alt="" /><span><strong>{user.role === "owner" ? conversation.counterpartName : conversation.establishment.name}</strong><small>{conversation.lastMessage}</small></span><time>{formatTime(conversation.updatedAt)}</time></button>) : <p className="empty-note">Your conversations will appear here.</p>}</div><div className="chat-card"><div className="chat-header"><img src={selected.imageUrl || payNearEmblem} onError={handleStoreImageError} alt="" /><div><span className="eyebrow"><MessageCircle aria-hidden="true" />{user.role === "owner" ? "CUSTOMER CONVERSATION" : `CHAT WITH ${selected.ownerName || selected.name}`}</span><h1>{user.role === "owner" ? conversations.find((item) => item.conversationUserId === activeConversationUserId)?.counterpartName || selected.name : selected.name}</h1><p>{selected.name} · {status}</p></div></div><div className="messages">{messages.length === 0 ? <div className="chat-empty"><MessageCircle aria-hidden="true" />Start by asking whether GCash is accepted today.</div> : messages.map((message) => { const fromMe = String(message.senderUserId) === String(user.id); return <div key={message._id} className={`message ${fromMe ? "from-user" : "from-store"}`}><span>{fromMe ? "You" : message.senderName}</span><p>{message.body}</p><small>{formatTime(message.createdAt)}</small></div>; })}</div><form className="message-form" onSubmit={sendMessage}><input aria-label="Message" value={draft} onChange={(event) => setDraft(event.target.value)} maxLength="500" placeholder="Type a message..." /><button className="button primary"><Send aria-hidden="true" />Send</button></form></div></section>;
 }
 
 function StatusBadge({ status }) {
@@ -853,6 +1069,37 @@ function ListingFormFields({ listingForm, setListingForm, setListingImage, useCu
   </>;
 }
 
+function ListingEditor({ place, updateListing, actionBusy, admin = false }) {
+  const [form, setForm] = useState(() => ({
+    name: place.name,
+    category: place.category,
+    address: place.address,
+    latitude: place.location?.coordinates?.[1] ?? "",
+    longitude: place.location?.coordinates?.[0] ?? "",
+    ownerName: place.ownerName || "",
+    ownerTitle: place.ownerTitle || "",
+    acceptedPaymentMethods: [...place.acceptedPaymentMethods],
+    openNow: Boolean(place.openNow),
+    isActive: Boolean(place.isActive),
+  }));
+  const toggleMethod = (method) => setForm((current) => ({
+    ...current,
+    acceptedPaymentMethods: current.acceptedPaymentMethods.includes(method)
+      ? current.acceptedPaymentMethods.filter((item) => item !== method)
+      : [...current.acceptedPaymentMethods, method],
+  }));
+  const submit = (event) => {
+    event.preventDefault();
+    updateListing(place._id, {
+      ...form,
+      latitude: Number(form.latitude),
+      longitude: Number(form.longitude),
+      ...(admin ? {} : { isActive: undefined, ownerName: undefined, ownerTitle: undefined }),
+    });
+  };
+  return <details className="listing-editor-panel"><summary><Pencil aria-hidden="true" />Edit complete listing</summary><form className="listing-editor-form" onSubmit={submit}><div className="editor-field-grid"><label>Store name<input required value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} /></label><label>Category<select value={form.category} onChange={(event) => setForm((current) => ({ ...current, category: event.target.value }))}>{CATEGORIES.slice(1).map((category) => <option key={category}>{category}</option>)}</select></label></div><label>Complete address<input required value={form.address} onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))} /></label><div className="coordinate-grid"><label>Latitude<input required type="number" step="any" min="-90" max="90" value={form.latitude} onChange={(event) => setForm((current) => ({ ...current, latitude: event.target.value }))} /></label><label>Longitude<input required type="number" step="any" min="-180" max="180" value={form.longitude} onChange={(event) => setForm((current) => ({ ...current, longitude: event.target.value }))} /></label></div><ListingLocationPicker latitude={form.latitude} longitude={form.longitude} onChange={(location) => setForm((current) => ({ ...current, ...location }))} />{admin && <div className="editor-field-grid"><label>Listing contact<input required value={form.ownerName} onChange={(event) => setForm((current) => ({ ...current, ownerName: event.target.value }))} /></label><label>Contact role<input required value={form.ownerTitle} onChange={(event) => setForm((current) => ({ ...current, ownerTitle: event.target.value }))} /></label></div>}<div className="choice-group"><span>Accepted payment methods</span><div className="chip-row">{METHODS.map((method) => <button type="button" key={method} className={form.acceptedPaymentMethods.includes(method) ? "chip selected" : "chip"} onClick={() => toggleMethod(method)}>{method}</button>)}</div></div><div className="editor-switches"><label className="switch"><input type="checkbox" checked={form.openNow} onChange={(event) => setForm((current) => ({ ...current, openNow: event.target.checked }))} /><span>Open now</span></label>{admin && <label className="switch"><input type="checkbox" checked={form.isActive} disabled={place.verificationStatus !== "verified"} onChange={(event) => setForm((current) => ({ ...current, isActive: event.target.checked }))} /><span>Published publicly</span></label>}</div>{!admin && <p className="editor-review-warning"><CircleAlert aria-hidden="true" />Changes to the name, category, address, location, or payments return this listing to administrator review.</p>}<button className="button primary" disabled={Boolean(actionBusy) || form.acceptedPaymentMethods.length === 0}><Save aria-hidden="true" />{actionBusy === `update:${place._id}` ? "Saving…" : "Save listing changes"}</button></form></details>;
+}
+
 function OwnerPage({ user, listingForm, setListingForm, createListing, listingImage, setListingImage, useCurrentLocation, listings, updateListing, uploadListingImage, message, submitting, actionBusy }) {
   if (user?.role !== "owner") return <section className="simple-page"><span className="page-icon"><Store aria-hidden="true" /></span><span className="eyebrow">BUSINESS AREA</span><h1>Business owner access is required.</h1><p>Register as a business owner to submit and manage your own store listings.</p></section>;
   return <section className="admin-page owner-page">
@@ -870,7 +1117,7 @@ function OwnerPage({ user, listingForm, setListingForm, createListing, listingIm
         {listings.length === 0 ? <div className="empty-state"><Store aria-hidden="true" /><h2>No store yet.</h2><p>Submit your first listing using the form.</p></div> : listings.map((place) => <article className="admin-row owner-listing-row" key={place._id}>
           <img src={place.imageUrl || payNearEmblem} onError={handleStoreImageError} alt="" />
           <div className="listing-summary"><div><strong>{place.name}</strong><StatusBadge status={place.verificationStatus} /></div><span>{place.category} · {place.address}</span><small>{place.isActive ? "Published publicly" : "Not visible to public users"}</small>{place.reviewNotes && <p className="review-note"><strong>Admin note:</strong> {place.reviewNotes}</p>}</div>
-          <div className="admin-row-actions"><button className="text-button" disabled={Boolean(actionBusy)} onClick={() => updateListing(place._id, { openNow: !place.openNow })}><Clock3 aria-hidden="true" />{actionBusy === `update:${place._id}` ? "Updating…" : place.openNow ? "Mark closed" : "Mark open"}</button><label className={`upload-label ${actionBusy ? "disabled" : ""}`}><ImageUp aria-hidden="true" />{actionBusy === `image:${place._id}` ? "Uploading…" : "Replace image"}<input disabled={Boolean(actionBusy)} type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => uploadListingImage(place._id, event.target.files?.[0])} /></label></div>
+          <div className="admin-row-actions"><button className="text-button" disabled={Boolean(actionBusy)} onClick={() => updateListing(place._id, { openNow: !place.openNow })}><Clock3 aria-hidden="true" />{actionBusy === `update:${place._id}` ? "Updating…" : place.openNow ? "Mark closed" : "Mark open"}</button><label className={`upload-label ${actionBusy ? "disabled" : ""}`}><ImageUp aria-hidden="true" />{actionBusy === `image:${place._id}` ? "Uploading…" : "Replace image"}<input disabled={Boolean(actionBusy)} type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => uploadListingImage(place._id, event.target.files?.[0])} /></label></div><ListingEditor place={place} updateListing={updateListing} actionBusy={actionBusy} />
         </article>)}
       </div>
     </div>
@@ -895,7 +1142,7 @@ function AdminPage({ user, listingForm, setListingForm, createListing, listingIm
           <div className="review-card-heading"><div><StatusBadge status={place.verificationStatus} /><h2>{place.name}</h2><p>{place.ownerName || "Unassigned owner"} · {place.ownerTitle || "Listing contact"}</p></div><span>{place.category}</span></div>
           <dl><div><dt>Address</dt><dd>{place.address}</dd></div><div><dt>Coordinates</dt><dd>{place.location?.coordinates?.slice().reverse().join(", ") || "Missing"}</dd></div><div><dt>Payments</dt><dd>{place.acceptedPaymentMethods.join(", ")}</dd></div></dl>
           <label className="review-notes">Review notes<textarea maxLength="500" value={notes[place._id] ?? place.reviewNotes ?? ""} onChange={(event) => setNotes((current) => ({ ...current, [place._id]: event.target.value }))} placeholder="Required when rejecting or requesting changes" /></label>
-          <div className="review-actions"><button className="button primary" disabled={!place.imageUrl || Boolean(actionBusy)} onClick={() => reviewListing(place._id, "verify", notes[place._id] || "")}><CheckCircle2 aria-hidden="true" />{actionBusy === `verify:${place._id}` ? "Publishing…" : "Verify & publish"}</button><button className="button outline" disabled={Boolean(actionBusy)} onClick={() => reviewListing(place._id, "request_changes", notes[place._id] || "")}><MessageSquareWarning aria-hidden="true" />Request changes</button><button className="text-button danger" disabled={Boolean(actionBusy)} onClick={() => reviewListing(place._id, "reject", notes[place._id] || "")}><XCircle aria-hidden="true" />Reject</button><label className={`upload-label ${actionBusy ? "disabled" : ""}`}><ImageUp aria-hidden="true" />{actionBusy === `image:${place._id}` ? "Uploading…" : "Replace image"}<input disabled={Boolean(actionBusy)} type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => uploadListingImage(place._id, event.target.files?.[0])} /></label>{place.verificationStatus === "verified" && <button className="text-button" disabled={Boolean(actionBusy)} onClick={() => updateListing(place._id, { isActive: !place.isActive })}>{place.isActive ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}{actionBusy === `update:${place._id}` ? "Updating…" : place.isActive ? "Unpublish" : "Republish"}</button>}</div>
+          <div className="review-actions"><button className="button primary" disabled={!place.imageUrl || Boolean(actionBusy)} onClick={() => reviewListing(place._id, "verify", notes[place._id] || "")}><CheckCircle2 aria-hidden="true" />{actionBusy === `verify:${place._id}` ? "Publishing…" : "Verify & publish"}</button><button className="button outline" disabled={Boolean(actionBusy)} onClick={() => reviewListing(place._id, "request_changes", notes[place._id] || "")}><MessageSquareWarning aria-hidden="true" />Request changes</button><button className="text-button danger" disabled={Boolean(actionBusy)} onClick={() => reviewListing(place._id, "reject", notes[place._id] || "")}><XCircle aria-hidden="true" />Reject</button><label className={`upload-label ${actionBusy ? "disabled" : ""}`}><ImageUp aria-hidden="true" />{actionBusy === `image:${place._id}` ? "Uploading…" : "Replace image"}<input disabled={Boolean(actionBusy)} type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => uploadListingImage(place._id, event.target.files?.[0])} /></label>{place.verificationStatus === "verified" && <button className="text-button" disabled={Boolean(actionBusy)} onClick={() => updateListing(place._id, { isActive: !place.isActive })}>{place.isActive ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}{actionBusy === `update:${place._id}` ? "Updating…" : place.isActive ? "Unpublish" : "Republish"}</button>}</div><ListingEditor place={place} updateListing={updateListing} actionBusy={actionBusy} admin />
         </div>
       </article>)}
     </div>

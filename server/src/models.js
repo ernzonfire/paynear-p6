@@ -45,7 +45,7 @@ const establishmentSchema = new Schema(
     reviewNotes: { type: String, trim: true, maxlength: 500, default: "" },
     publishedAt: { type: Date, default: null },
     openNow: { type: Boolean, default: true },
-    rating: { type: Number, min: 0, max: 5, default: 4.5 },
+    rating: { type: Number, min: 0, max: 5, default: 0 },
     reviewCount: { type: Number, min: 0, default: 0 },
   },
   { timestamps: true },
@@ -55,6 +55,7 @@ establishmentSchema.index({ location: "2dsphere" });
 const messageSchema = new Schema(
   {
     establishmentId: { type: Schema.Types.ObjectId, ref: "Establishment", required: true },
+    conversationUserId: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
     senderUserId: { type: Schema.Types.ObjectId, ref: "User" },
     senderName: { type: String, required: true },
     senderRole: { type: String, enum: ["user", "establishment"], default: "user" },
@@ -64,11 +65,25 @@ const messageSchema = new Schema(
   },
   { timestamps: true },
 );
+messageSchema.index({ establishmentId: 1, conversationUserId: 1, createdAt: 1 });
+
+const reviewSchema = new Schema(
+  {
+    establishmentId: { type: Schema.Types.ObjectId, ref: "Establishment", required: true, index: true },
+    userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    userName: { type: String, required: true, trim: true, maxlength: 80 },
+    rating: { type: Number, required: true, min: 1, max: 5 },
+    comment: { type: String, required: true, trim: true, maxlength: 700 },
+  },
+  { timestamps: true },
+);
+reviewSchema.index({ establishmentId: 1, userId: 1 }, { unique: true });
 
 const notificationSchema = new Schema(
   {
     userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
     establishmentId: { type: Schema.Types.ObjectId, ref: "Establishment" },
+    conversationUserId: { type: Schema.Types.ObjectId, ref: "User", default: null },
     type: { type: String, enum: ["gcash", "chat", "listing"], required: true },
     title: { type: String, required: true },
     message: { type: String, required: true },
@@ -81,3 +96,4 @@ export const User = models.User || model("User", userSchema);
 export const Establishment = models.Establishment || model("Establishment", establishmentSchema);
 export const Message = models.Message || model("Message", messageSchema);
 export const Notification = models.Notification || model("Notification", notificationSchema);
+export const Review = models.Review || model("Review", reviewSchema);
