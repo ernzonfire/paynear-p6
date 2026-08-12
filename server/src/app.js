@@ -10,6 +10,7 @@ import {
   createMessage,
   createNotification,
   createUser,
+  deleteUserAccount,
   deleteReview,
   dbReady,
   findUserByEmail,
@@ -240,6 +241,21 @@ export function createApp() {
     } catch (error) {
       return next(error);
     }
+  });
+
+  app.delete("/api/account", requireAuth, requirePasswordChanged, async (request, response, next) => {
+    try {
+      if (request.user.role === "admin") {
+        return response.status(403).json({ message: "Administrator accounts are managed privately by the PayNear team." });
+      }
+      const password = String(request.body.password || "");
+      if (!password || !await bcrypt.compare(password, request.user.passwordHash)) {
+        return response.status(401).json({ message: "Enter your current password to delete your account." });
+      }
+      const deleted = await deleteUserAccount(String(request.user._id));
+      if (!deleted) return response.status(404).json({ message: "Account not found." });
+      return response.json({ message: "Your PayNear account and associated personal data were deleted." });
+    } catch (error) { return next(error); }
   });
 
   app.get("/api/establishments", async (request, response, next) => {

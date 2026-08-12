@@ -18,6 +18,7 @@ import {
   EyeOff,
   Heart,
   ImageUp,
+  Info,
   ListFilter,
   LocateFixed,
   LockKeyhole,
@@ -41,6 +42,7 @@ import {
   Trash2,
   UserRound,
   UserRoundPlus,
+  Users,
   X,
   XCircle,
 } from "lucide-react";
@@ -69,7 +71,10 @@ const initialListing = {
   openNow: true,
 };
 
+const TEAM_MEMBERS = ["Jerald Tamayo", "Brian Butche", "John Angelo Bitana", "Ernie Demaluan"];
+
 const routePlaceId = () => window.location.pathname.match(/^\/places\/([^/]+)\/?$/)?.[1] || "";
+const routePage = () => window.location.pathname === "/about" ? "about" : window.location.pathname === "/privacy" ? "privacy" : routePlaceId() ? "details" : "discover";
 
 const PAYMENT_BRANDS = {
   GCash: { mark: "G", className: "gcash", logoSrc: "https://commons.wikimedia.org/wiki/Special:FilePath/GCash_logo.svg" },
@@ -124,6 +129,26 @@ function MapInteractionTracker({ followUserRef }) {
   useMapEvents({
     dragstart: () => { followUserRef.current = false; },
   });
+  return null;
+}
+
+function MapSizeSync() {
+  const map = useMap();
+
+  useEffect(() => {
+    const container = map.getContainer();
+    let frame = window.requestAnimationFrame(() => map.invalidateSize({ animate: false, pan: false }));
+    const observer = new ResizeObserver(() => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => map.invalidateSize({ animate: false, pan: false }));
+    });
+    observer.observe(container);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [map]);
+
   return null;
 }
 
@@ -235,6 +260,7 @@ function NearbyMap({ establishments, setSelected, userPosition, radiusKm, locati
   return <div className={`map-shell ${fullScreen ? "map-shell-fullscreen" : ""}`}>
     <MapContainer ref={mapRef} center={center} zoom={userPosition ? 14 : 13} scrollWheelZoom className={`nearby-map ${manualPinMode ? "manual-pin-active" : ""}`}>
       <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>' url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" />
+      <MapSizeSync />
       <MapInteractionTracker followUserRef={followUserRef} />
       <ManualSearchLocationPicker enabled={manualPinMode} onChoose={onManualLocation} />
       <MapViewport
@@ -259,7 +285,7 @@ function App() {
   const [filters, setFilters] = useState(initialFilters);
   const [establishments, setEstablishments] = useState([]);
   const [selected, setSelected] = useState(null);
-  const [activePage, setActivePage] = useState(() => routePlaceId() ? "details" : "discover");
+  const [activePage, setActivePage] = useState(routePage);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [aiPrompt, setAiPrompt] = useState("");
@@ -276,6 +302,10 @@ function App() {
   const [authForm, setAuthForm] = useState({ name: "", email: "", password: "", role: "user" });
   const [authError, setAuthError] = useState("");
   const [authSubmitting, setAuthSubmitting] = useState(false);
+  const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
+  const [deleteAccountPassword, setDeleteAccountPassword] = useState("");
+  const [deleteAccountError, setDeleteAccountError] = useState("");
+  const [deleteAccountSubmitting, setDeleteAccountSubmitting] = useState(false);
   const [passwordForm, setPasswordForm] = useState({ password: "", confirmPassword: "" });
   const [passwordError, setPasswordError] = useState("");
   const [passwordSubmitting, setPasswordSubmitting] = useState(false);
@@ -409,7 +439,7 @@ function App() {
     const openRoute = () => {
       const id = routePlaceId();
       if (id) loadPlaceDetails(id);
-      else setActivePage((current) => current === "details" ? "discover" : current);
+      else setActivePage(routePage());
     };
     openRoute();
     window.addEventListener("popstate", openRoute);
@@ -535,6 +565,9 @@ function App() {
     setPasswordError("");
     setShowNotifications(false);
     setShowProfile(false);
+    setDeleteAccountOpen(false);
+    setDeleteAccountPassword("");
+    setDeleteAccountError("");
     setActivePage("discover");
     window.history.replaceState({}, "", "/");
     alert(notice);
@@ -571,6 +604,21 @@ function App() {
       setAuthError(requestError.message);
     } finally {
       setAuthSubmitting(false);
+    }
+  }
+
+  async function submitDeleteAccount(event) {
+    event.preventDefault();
+    if (deleteAccountSubmitting) return;
+    setDeleteAccountError("");
+    setDeleteAccountSubmitting(true);
+    try {
+      await api.deleteAccount(deleteAccountPassword, token);
+      logout("Your PayNear account and associated personal data were deleted.");
+    } catch (requestError) {
+      setDeleteAccountError(requestError.message);
+    } finally {
+      setDeleteAccountSubmitting(false);
     }
   }
 
@@ -881,7 +929,8 @@ function App() {
   }
 
   function selectPage(page) {
-    if (window.location.pathname !== "/") window.history.pushState({}, "", "/");
+    const destination = page === "about" ? "/about" : page === "privacy" ? "/privacy" : "/";
+    if (window.location.pathname !== destination) window.history.pushState({}, "", destination);
     setActivePage(user?.mustChangePassword ? "change-password" : page);
     setShowNotifications(false);
     setShowProfile(false);
@@ -897,6 +946,7 @@ function App() {
           {user?.role !== "admin" && <button className={activePage === "chat" ? "active" : ""} onClick={() => openChat(null)}><MessageCircle aria-hidden="true" /><span>Messages</span></button>}
           {user?.role === "owner" && <button className={activePage === "owner" ? "active" : ""} onClick={() => selectPage("owner")}><Store aria-hidden="true" /><span>My business</span></button>}
           {user?.role === "admin" && <button className={activePage === "admin" ? "active" : ""} onClick={() => selectPage("admin")}><ShieldCheck aria-hidden="true" /><span>Admin</span></button>}
+          <button className={activePage === "about" || activePage === "privacy" ? "active" : ""} onClick={() => selectPage("about")}><Info aria-hidden="true" /><span>About</span></button>
         </nav>}
         <div className="header-actions">
           {!sessionChecking && user && !user.mustChangePassword && <div className="notice-wrap">
@@ -910,6 +960,7 @@ function App() {
             <button className="profile-button" aria-expanded={showProfile} aria-haspopup="menu" onClick={() => { setShowProfile((value) => !value); setShowNotifications(false); }}><span className="profile-avatar">{user.name.slice(0, 1).toUpperCase()}</span><span className="profile-name">{user.name.split(" ")[0]}</span><ChevronDown className="profile-chevron" aria-hidden="true" /></button>
             {showProfile && <div className="profile-menu" role="menu">
               <div className="profile-summary"><span className="profile-avatar large">{user.name.slice(0, 1).toUpperCase()}</span><div><strong>{user.name}</strong><span>{user.email}</span><small>{user.role === "owner" ? "Business owner" : user.role === "admin" ? "Administrator" : "PayNear user"}</small></div></div>
+              {user.role !== "admin" && <button className="profile-menu-button danger" role="menuitem" onClick={() => { setShowProfile(false); setDeleteAccountOpen(true); }}><Trash2 aria-hidden="true" />Delete account</button>}
               <button className="signout-button" role="menuitem" onClick={logout}><LogOut aria-hidden="true" />Sign out</button>
             </div>}
           </div> : <button className="button outline sign-in-button" onClick={() => { setAuthMode("login"); setAuthOpen(true); }}><LogIn aria-hidden="true" />Sign in</button>}
@@ -930,6 +981,8 @@ function App() {
         {activePage === "saved" && <SavedPage user={user} savedPlaces={savedPlaces} selected={selected} openDetails={openPlaceDetails} toggleFavorite={toggleFavorite} updatePreference={updatePreference} openDiscover={() => selectPage("discover")} requestSignIn={() => { setAuthMode("login"); setAuthOpen(true); }} />}
         {activePage === "details" && <PlaceDetailPage user={user} place={selected} loading={detailLoading} reviews={reviews} myReview={myReview} reviewForm={reviewForm} setReviewForm={setReviewForm} submitReview={submitReview} removeReview={removeReview} reviewBusy={reviewBusy} toggleFavorite={toggleFavorite} favorite={selected ? favoriteIds.includes(selected._id) : false} openChat={openChat} sharePlace={sharePlace} goBack={() => selectPage("discover")} requestSignIn={() => { setAuthMode("login"); setAuthOpen(true); }} />}
         {activePage === "chat" && <ChatPage user={user} selected={selected} conversations={conversations} activeConversationUserId={activeConversationUserId} chooseConversation={chooseConversation} messages={messages} draft={messageDraft} setDraft={setMessageDraft} sendMessage={sendMessage} status={chatStatus} openDiscover={() => selectPage("discover")} requestSignIn={() => { setAuthMode("login"); setAuthOpen(true); }} />}
+        {activePage === "about" && <AboutPage openPrivacy={() => selectPage("privacy")} />}
+        {activePage === "privacy" && <PrivacyPage openAbout={() => selectPage("about")} />}
         {activePage === "owner" && <OwnerPage
           user={user} listingForm={listingForm} setListingForm={setListingForm} createListing={createListing}
           listingImage={listingImage} setListingImage={setListingImage} useCurrentLocation={useCurrentLocationForListing}
@@ -948,6 +1001,7 @@ function App() {
 
       {toast && <div className="toast" role="status">{toast}</div>}
       {authOpen && <AuthDialog mode={authMode} setMode={(nextMode) => { setAuthMode(nextMode); setAuthError(""); }} form={authForm} setForm={setAuthForm} submit={submitAuth} error={authError} close={closeAuthDialog} submitting={authSubmitting} />}
+      {deleteAccountOpen && <DeleteAccountDialog password={deleteAccountPassword} setPassword={setDeleteAccountPassword} error={deleteAccountError} submit={submitDeleteAccount} close={() => { if (!deleteAccountSubmitting) { setDeleteAccountOpen(false); setDeleteAccountPassword(""); setDeleteAccountError(""); } }} submitting={deleteAccountSubmitting} />}
     </div>
   );
 }
@@ -1148,6 +1202,107 @@ function AdminPage({ user, listingForm, setListingForm, createListing, listingIm
     </div>
     <details className="manual-listing-panel"><summary><Plus aria-hidden="true" />Add a listing manually</summary><form className="listing-form" onSubmit={createListing}><h2><Building2 aria-hidden="true" />Administrator-created listing</h2><ListingFormFields listingForm={listingForm} setListingForm={setListingForm} listingImage={listingImage} setListingImage={setListingImage} useCurrentLocation={useCurrentLocation} showContact /><button className="button primary" type="submit" disabled={submitting}><Plus aria-hidden="true" />{submitting ? "Creating listing…" : "Create pending listing"}</button></form></details>
   </section>;
+}
+
+function AboutPage({ openPrivacy }) {
+  return <section className="about-page">
+    <div className="about-hero">
+      <img className="about-emblem" src={payNearEmblem} alt="" />
+      <div><span className="eyebrow"><Info aria-hidden="true" />ABOUT PAYNEAR</span><h1>Nearby places, verified by people.</h1><p>PayNear helps people discover nearby establishments, see the payment methods they accept, and connect with their owners. Store submissions are reviewed by the PayNear administrators before they are published.</p></div>
+    </div>
+    <div className="about-grid">
+      <article className="about-card"><MapPinned aria-hidden="true" /><div><h2>Made for local discovery</h2><p>Search the map using your current location or place a manual pin. Location access is optional and used only while PayNear is open.</p></div></article>
+      <article className="about-card"><ShieldCheck aria-hidden="true" /><div><h2>Human-reviewed listings</h2><p>Business owners submit their store details, photos, address, and map coordinates. Administrators verify each listing before public release.</p></div></article>
+    </div>
+    <section className="team-section" aria-labelledby="team-title">
+      <span className="eyebrow"><Users aria-hidden="true" />THE LAST ROOM</span>
+      <h2 id="team-title">Developed by our four-person team</h2>
+      <p>PayNear was designed and developed collaboratively by The Last Room.</p>
+      <div className="team-grid">{TEAM_MEMBERS.map((name) => <article className="team-member" key={name}><span aria-hidden="true">{name.split(" ").map((part) => part[0]).slice(0, 2).join("")}</span><div><strong>{name}</strong><small>Developer</small></div></article>)}</div>
+    </section>
+    <div className="about-footer-card"><div><LockKeyhole aria-hidden="true" /><span><strong>Your privacy matters.</strong><small>Read what PayNear collects, why it is used, and how you can delete your account.</small></span></div><button className="button outline" type="button" onClick={openPrivacy}>Privacy policy</button></div>
+  </section>;
+}
+
+function PrivacyPage({ openAbout }) {
+  return <section className="privacy-page">
+    <div className="legal-heading"><span className="eyebrow"><LockKeyhole aria-hidden="true" />PAYNEAR PRIVACY POLICY</span><h1>Clear, practical privacy.</h1><p>Effective August 12, 2026</p></div>
+    <div className="legal-card">
+      <p>PayNear is developed and operated by The Last Room, a four-person student development team. This policy explains the information PayNear handles when you use the website or mobile application.</p>
+
+      <h2>Information we handle</h2>
+      <ul>
+        <li><strong>Account information:</strong> your name, email address, account role, preferences, and a securely hashed version of your password.</li>
+        <li><strong>Content you provide:</strong> favorites, reviews, messages, and—if you are a business owner—store details, photos, address, payment methods, and map coordinates.</li>
+        <li><strong>Location:</strong> precise or approximate coordinates only when you choose a location feature. PayNear uses them to center the map and find nearby establishments. PayNear does not request background location access or save live location to your profile.</li>
+        <li><strong>Technical information:</strong> standard server and security logs needed to operate, protect, and troubleshoot the service.</li>
+      </ul>
+
+      <h2>How we use information</h2>
+      <p>We use this information to provide search and map results, operate user and business-owner accounts, review store submissions, support reviews and messaging, prevent abuse, and maintain the service. We do not sell personal information or use it for third-party advertising.</p>
+
+      <h2>Services that support PayNear</h2>
+      <p>PayNear uses service providers to host the application and database, deliver map tiles and public images, and support optional AI-assisted search. Those services may receive the network and device information necessary to answer a request. Store photos and listing information that owners submit become public only after administrator approval.</p>
+
+      <h2>Your choices and control</h2>
+      <ul>
+        <li>You may deny location access and use a manually placed map pin instead.</li>
+        <li>You may edit or remove your own reviews and manage your saved places.</li>
+        <li>Users and business owners can permanently delete their account from the profile menu. Deletion removes the account and associated personal content, including owned listings. Administrator accounts are privately managed by the PayNear team.</li>
+      </ul>
+
+      <h2>Retention and security</h2>
+      <p>We retain information while an account is active and only as long as reasonably needed to provide PayNear, meet security obligations, and resolve legitimate disputes. Passwords are hashed, and supported production connections use encryption in transit. No system can guarantee absolute security.</p>
+
+      <h2>Children</h2>
+      <p>PayNear is not designed for children under 13, and we do not knowingly collect personal information from children under 13.</p>
+
+      <h2>Changes and contact</h2>
+      <p>We may update this policy when PayNear changes. The effective date above will be updated when that happens. Privacy questions may be sent through the developer contact shown on PayNear's App Store and Google Play listing.</p>
+    </div>
+    <button className="button outline legal-back-button" type="button" onClick={openAbout}><ArrowLeft aria-hidden="true" />Back to About</button>
+  </section>;
+}
+
+function DeleteAccountDialog({ password, setPassword, error, submit, close, submitting }) {
+  const dialogRef = useRef(null);
+  const closeRef = useRef(close);
+  const submittingRef = useRef(submitting);
+  closeRef.current = close;
+  submittingRef.current = submitting;
+
+  useEffect(() => {
+    const previousFocus = document.activeElement;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const focusTimer = window.setTimeout(() => dialogRef.current?.querySelector("input")?.focus(), 0);
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape" && !submittingRef.current) closeRef.current();
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.clearTimeout(focusTimer);
+      document.removeEventListener("keydown", closeOnEscape);
+      document.body.style.overflow = previousOverflow;
+      previousFocus?.focus?.();
+    };
+  }, []);
+
+  return <div className="modal-backdrop" role="presentation" onPointerDown={(event) => {
+    if (event.target === event.currentTarget && !submitting) close();
+  }}>
+    <section ref={dialogRef} className="auth-dialog account-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-account-title" aria-describedby="delete-account-description">
+      <button className="modal-close" type="button" onClick={close} disabled={submitting} aria-label="Close"><X aria-hidden="true" /></button>
+      <span className="delete-account-icon"><Trash2 aria-hidden="true" /></span>
+      <h2 id="delete-account-title">Delete your account?</h2>
+      <p id="delete-account-description">This permanently removes your profile and related content. Business owners will also lose their submitted listings. This action cannot be undone.</p>
+      <form onSubmit={submit} aria-busy={submitting}>
+        <label>Confirm with your password<input type="password" required autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <div className="account-delete-actions"><button className="button outline" type="button" onClick={close} disabled={submitting}>Keep account</button><button className="button danger-button" type="submit" disabled={submitting}><Trash2 aria-hidden="true" />{submitting ? "Deleting…" : "Delete permanently"}</button></div>
+      </form>
+    </section>
+  </div>;
 }
 
 function AuthDialog({ mode, setMode, form, setForm, submit, error, close, submitting }) {

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">PayNear</string>
+    <string name="title_activity_main">PayNear</string>
+    <string name="package_name">com.thelastroom.paynear</string>
+    <string name="custom_url_scheme">com.thelastroom.paynear</string>
+</resources>

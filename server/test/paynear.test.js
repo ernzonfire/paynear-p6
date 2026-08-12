@@ -477,3 +477,42 @@ test("favorite listings persist independently of current discovery filters", asy
   const saved = await savedResponse.json();
   assert.ok(saved.establishments.some((item) => item._id === listing._id));
 });
+
+test("consumer accounts can permanently delete themselves only after password confirmation", async (context) => {
+  const { app } = createApp();
+  const server = http.createServer(app);
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  context.after(() => new Promise((resolve) => server.close(resolve)));
+  const baseUrl = `http://127.0.0.1:${server.address().port}/api`;
+  const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const credentials = { name: "Deletion Consumer", email: `delete-${suffix}@paynear.test`, password: "testing123", role: "user" };
+  const registrationResponse = await fetch(`${baseUrl}/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(credentials),
+  });
+  const registration = await registrationResponse.json();
+
+  const rejected = await fetch(`${baseUrl}/account`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${registration.token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ password: "wrong-password" }),
+  });
+  assert.equal(rejected.status, 401);
+
+  const deleted = await fetch(`${baseUrl}/account`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${registration.token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ password: credentials.password }),
+  });
+  assert.equal(deleted.status, 200);
+
+  const formerSession = await fetch(`${baseUrl}/auth/me`, { headers: { Authorization: `Bearer ${registration.token}` } });
+  assert.equal(formerSession.status, 401);
+  const formerLogin = await fetch(`${baseUrl}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: credentials.email, password: credentials.password }),
+  });
+  assert.equal(formerLogin.status, 401);
+});

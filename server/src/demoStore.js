@@ -409,6 +409,48 @@ export async function updateUser(id, updates) {
   return memory.users[index];
 }
 
+export async function deleteUserAccount(userId) {
+  const id = String(userId);
+  if (dbReady()) {
+    if (!mongoose.isValidObjectId(id)) return false;
+    const ownedEstablishmentIds = await Establishment.find({ ownerUserId: id }).distinct("_id");
+    const ownedIdSet = new Set(ownedEstablishmentIds.map(String));
+    const authoredReviews = await Review.find({ userId: id }).select("establishmentId").lean();
+    const affectedEstablishmentIds = [...new Set(authoredReviews.map((review) => String(review.establishmentId)))]
+      .filter((establishmentId) => !ownedIdSet.has(establishmentId));
+
+    const establishmentFilter = ownedEstablishmentIds.length ? { $in: ownedEstablishmentIds } : { $in: [] };
+    await Promise.all([
+      Message.deleteMany({ $or: [{ conversationUserId: id }, { senderUserId: id }, { establishmentId: establishmentFilter }] }),
+      Notification.deleteMany({ $or: [{ userId: id }, { conversationUserId: id }, { establishmentId: establishmentFilter }] }),
+      Review.deleteMany({ $or: [{ userId: id }, { establishmentId: establishmentFilter }] }),
+      Establishment.deleteMany({ _id: establishmentFilter }),
+    ]);
+    if (ownedEstablishmentIds.length) {
+      await User.updateMany({}, { $pull: { favoriteEstablishmentIds: { $in: ownedEstablishmentIds } } });
+    }
+    const deleted = await User.findByIdAndDelete(id);
+    await Promise.all(affectedEstablishmentIds.map((establishmentId) => refreshEstablishmentRating(establishmentId)));
+    return Boolean(deleted);
+  }
+
+  const userIndex = memory.users.findIndex((item) => String(item._id) === id);
+  if (userIndex < 0) return false;
+  const ownedIdSet = new Set(memory.establishments.filter((item) => String(item.ownerUserId || "") === id).map((item) => String(item._id)));
+  const affectedEstablishmentIds = [...new Set(memory.reviews.filter((review) => String(review.userId) === id).map((review) => String(review.establishmentId)))]
+    .filter((establishmentId) => !ownedIdSet.has(establishmentId));
+  memory.messages = memory.messages.filter((item) => String(item.conversationUserId) !== id && String(item.senderUserId) !== id && !ownedIdSet.has(String(item.establishmentId)));
+  memory.notifications = memory.notifications.filter((item) => String(item.userId) !== id && String(item.conversationUserId || "") !== id && !ownedIdSet.has(String(item.establishmentId || "")));
+  memory.reviews = memory.reviews.filter((item) => String(item.userId) !== id && !ownedIdSet.has(String(item.establishmentId)));
+  memory.establishments = memory.establishments.filter((item) => !ownedIdSet.has(String(item._id)));
+  memory.users.forEach((item) => {
+    item.favoriteEstablishmentIds = (item.favoriteEstablishmentIds || []).filter((establishmentId) => !ownedIdSet.has(String(establishmentId)));
+  });
+  memory.users.splice(userIndex, 1);
+  await Promise.all(affectedEstablishmentIds.map((establishmentId) => refreshEstablishmentRating(establishmentId)));
+  return true;
+}
+
 export async function getMessages(establishmentId, conversationUserId) {
   if (dbReady()) {
     if (!mongoose.isValidObjectId(establishmentId) || !mongoose.isValidObjectId(conversationUserId)) return [];

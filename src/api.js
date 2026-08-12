@@ -52,6 +52,7 @@ export const api = {
   preferences(preferredPaymentMethod, token) { return request("/account/preferences", { method: "PUT", body: JSON.stringify({ preferredPaymentMethod }) }, token); },
   favorite(id, token) { return request(`/account/favorites/${id}`, { method: "POST" }, token); },
   favorites(token) { return request("/account/favorites", {}, token); },
+  deleteAccount(password, token) { return request("/account", { method: "DELETE", body: JSON.stringify({ password }) }, token); },
   aiSuggest(prompt) { return request("/ai/suggest", { method: "POST", body: JSON.stringify({ prompt }) }); },
   conversations(token) { return request("/conversations", {}, token); },
   messages(id, token, conversationUserId = "") { return request(`/messages/${id}${conversationUserId ? `?conversationUserId=${encodeURIComponent(conversationUserId)}` : ""}`, {}, token); },

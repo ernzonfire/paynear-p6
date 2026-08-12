@@ -1,0 +1,32 @@
+{
+  "appId": "com.thelastroom.paynear",
+  "appName": "PayNear",
+  "webDir": "dist",
+  "backgroundColor": "#f5fbfa",
+  "loggingBehavior": "debug",
+  "zoomEnabled": false,
+  "android": {
+    "allowMixedContent": false,
+    "resolveServiceWorkerRequests": false,
+    "webContentsDebuggingEnabled": false
+  },
+  "ios": {
+    "allowsLinkPreview": false,
+    "contentInset": "never",
+    "preferredContentMode": "mobile",
+    "webContentsDebuggingEnabled": false
+  },
+  "plugins": {
+    "SystemBars": {
+      "animation": "NONE",
+      "hidden": false,
+      "insetsHandling": "css",
+      "style": "LIGHT"
+    }
+  },
+  "server": {
+    "androidScheme": "https",
+    "cleartext": false,
+    "hostname": "localhost"
+  }
+}
