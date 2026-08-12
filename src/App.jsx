@@ -1193,7 +1193,7 @@ function AuthDialog({ mode, setMode, form, setForm, submit, error, close, submit
         <label>Email<input type="email" required autoComplete="email" value={form.email} onChange={update("email")} /></label>
         <label>Password<input type="password" minLength="8" required autoComplete={mode === "login" ? "current-password" : "new-password"} value={form.password} onChange={update("password")} /></label>
         {error && <p className="form-error" role="alert">{error}</p>}
-        <button className="button primary full" type="submit" disabled={submitting}>{mode === "login" ? <LogIn aria-hidden="true" /> : <UserRoundPlus aria-hidden="true" />}{submitting ? (mode === "login" ? "Signing in…" : "Creating account…") : mode === "login" ? "Sign in" : "Create account"}</button>
+        <button className="button primary full auth-submit-button" type="submit" disabled={submitting}>{mode === "login" ? <LogIn aria-hidden="true" /> : <UserRoundPlus aria-hidden="true" />}{submitting ? (mode === "login" ? "Signing in…" : "Creating account…") : mode === "login" ? "Sign in" : "Create account"}</button>
       </form>
       {mode === "login" && <p className="admin-access-note">Administrator accounts are issued privately by the PayNear team and cannot be created here.</p>}
       <p className="auth-switch">{mode === "login" ? "New here?" : "Already have an account?"} <button type="button" disabled={submitting} onClick={() => setMode(mode === "login" ? "register" : "login")}>{mode === "login" ? "Register" : "Sign in"}</button></p>
